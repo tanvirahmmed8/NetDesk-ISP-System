@@ -2,6 +2,8 @@
 
 NetDesk is a simple ISP customer-care and support-ticket dashboard built with Next.js and MySQL. It provides customer account lookup, package management views, billing information, ticket tracking, and API documentation.
 
+Repository: [github.com/tanvirahmmed8/NetDesk-ISP-System](https://github.com/tanvirahmmed8/NetDesk-ISP-System)
+
 ## Features
 
 - Customer list with search
@@ -41,6 +43,13 @@ When a customer submits another complaint in the same category:
 - MySQL 8 or newer
 
 ## Installation
+
+Clone the repository manually:
+
+```powershell
+git clone https://github.com/tanvirahmmed8/NetDesk-ISP-System.git
+cd NetDesk-ISP-System
+```
 
 Install project dependencies:
 
@@ -214,4 +223,3 @@ scripts/
 ## Security note
 
 The local version does not require authentication. Before exposing it publicly, add user authentication, API authorization, rate limiting, input validation, audit logging, and HTTPS.
-
