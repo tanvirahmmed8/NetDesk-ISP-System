@@ -137,18 +137,18 @@ http://localhost:3008
 |---|---|---|
 | `GET` | `/api/customers` | List all customers |
 | `POST` | `/api/customers` | Create a customer |
-| `GET` | `/api/customers/{cid}` | Get customer details and tickets |
+| `GET` | `/api/customers?cid={cid}` | Get customer details and tickets |
 | `GET` | `/api/packages` | List internet packages |
 | `GET` | `/api/tickets` | List all support tickets |
 | `POST` | `/api/tickets` | Create a ticket or add a complaint note |
-| `GET` | `/api/tickets/{ticketNo}` | Get a ticket and its notes |
-| `PATCH` | `/api/tickets/{ticketNo}/status` | Update ticket status |
+| `GET` | `/api/tickets?ticketNo={ticketNo}` | Get a ticket and its notes |
+| `PATCH` | `/api/tickets` | Update status using `ticketNo` and `status` in the JSON body |
 | `GET` | `/api/docs` | Get the OpenAPI 3.1 document |
 
 ### Customer lookup example
 
 ```http
-GET /api/customers/CID-10021
+GET /api/customers?cid=CID-10021
 ```
 
 ### Create customer example

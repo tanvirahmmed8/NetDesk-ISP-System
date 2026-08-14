@@ -5,8 +5,29 @@ import { apiError } from "@/lib/http";
 
 const statuses = ["active", "suspended", "inactive"];
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const cid = request.nextUrl.searchParams.get("cid");
+    if (cid) {
+      const [customers] = await db.query(`
+        SELECT c.id, c.cid, c.name, c.phone, c.email, c.address,
+          c.next_payment_date AS nextPaymentDate, c.account_status AS accountStatus,
+          p.name AS packageName, p.speed_mbps AS speedMbps, p.price AS packagePrice
+        FROM customers c JOIN packages p ON p.id = c.package_id
+        WHERE c.cid = ? LIMIT 1
+      `, [cid]);
+      if (!Array.isArray(customers) || !customers.length) {
+        return NextResponse.json({ success: false, message: "Customer not found" }, { status: 404 });
+      }
+      const customer = customers[0] as { id: number };
+      const [tickets] = await db.query(`
+        SELECT t.id, t.ticket_no AS ticketNo, t.category, t.subject, t.description,
+          t.status, t.priority, t.created_at AS createdAt, t.updated_at AS updatedAt,
+          (SELECT COUNT(*) FROM ticket_notes n WHERE n.ticket_id = t.id) AS noteCount
+        FROM tickets t WHERE t.customer_id = ? ORDER BY t.created_at DESC LIMIT 10
+      `, [customer.id]);
+      return NextResponse.json({ success: true, data: { customer, tickets } });
+    }
     const [customers] = await db.query(`
       SELECT c.cid, c.name, c.phone, c.email, c.address,
         c.next_payment_date AS nextPaymentDate, c.account_status AS accountStatus,

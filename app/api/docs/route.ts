@@ -16,44 +16,27 @@ export async function GET() {
     ],
     paths: {
       "/api/customers": {
-        get: { tags: ["Customers"], summary: "List customers", responses: { "200": { description: "Customer list", content: { "application/json": { schema: { $ref: "#/components/schemas/CustomerListResponse" } } } } } },
+        get: { tags: ["Customers"], summary: "List customers or get one customer", parameters: [{ name: "cid", in: "query", required: false, description: "Provide a CID to return one customer and their recent tickets. Omit it to list all customers.", schema: { type: "string" }, example: "CID-10021" }], responses: { "200": { description: "Customer list or details", content: { "application/json": { schema: { $ref: "#/components/schemas/CustomerListResponse" } } } }, "404": { description: "Customer not found" } } },
         post: {
           tags: ["Customers"], summary: "Create customer",
           requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/CreateCustomer" } } } },
           responses: { "201": { description: "Customer created" }, "400": { description: "Invalid request" }, "409": { description: "CID already exists" } },
         },
       },
-      "/api/customers/{cid}": {
-        get: {
-          tags: ["Customers"], summary: "Get customer details and recent tickets",
-          parameters: [{ name: "cid", in: "path", required: true, schema: { type: "string" }, example: "CID-10021" }],
-          responses: { "200": { description: "Customer details" }, "404": { description: "Customer not found" } },
-        },
-      },
       "/api/packages": {
         get: { tags: ["Packages"], summary: "List internet packages", responses: { "200": { description: "Package list" } } },
       },
       "/api/tickets": {
-        get: { tags: ["Tickets"], summary: "List all tickets", responses: { "200": { description: "Ticket list" } } },
+        get: { tags: ["Tickets"], summary: "List tickets or get one ticket", parameters: [{ name: "ticketNo", in: "query", required: false, description: "Provide a ticket number to return its details and notes. Omit it to list all tickets.", schema: { type: "string" }, example: "TKT-240001" }], responses: { "200": { description: "Ticket list or details" }, "404": { description: "Ticket not found" } } },
         post: {
           tags: ["Tickets"], summary: "Create a ticket or append a duplicate complaint note",
           description: "When the customer already has an open or in-progress ticket in the same category, the complaint is added as a note to that ticket.",
           requestBody: { required: true, content: { "application/json": { schema: { $ref: "#/components/schemas/CreateTicket" } } } },
           responses: { "201": { description: "New ticket created" }, "200": { description: "Note added to existing unresolved ticket" }, "400": { description: "Invalid request" }, "404": { description: "Customer not found" } },
         },
-      },
-      "/api/tickets/{ticketNo}": {
-        get: {
-          tags: ["Tickets"], summary: "Get ticket and notes",
-          parameters: [{ name: "ticketNo", in: "path", required: true, schema: { type: "string" }, example: "TKT-240001" }],
-          responses: { "200": { description: "Ticket details" }, "404": { description: "Ticket not found" } },
-        },
-      },
-      "/api/tickets/{ticketNo}/status": {
         patch: {
           tags: ["Tickets"], summary: "Update ticket status",
-          parameters: [{ name: "ticketNo", in: "path", required: true, schema: { type: "string" } }],
-          requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["status"], properties: { status: { type: "string", enum: ["open", "in_progress", "resolved", "closed"] } } } } } },
+          requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["ticketNo", "status"], properties: { ticketNo: { type: "string", example: "TKT-240001" }, status: { type: "string", enum: ["open", "in_progress", "resolved", "closed"] } } } } } },
           responses: { "200": { description: "Status updated" }, "400": { description: "Invalid status" }, "404": { description: "Ticket not found" } },
         },
       },

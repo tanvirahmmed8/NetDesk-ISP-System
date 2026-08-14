@@ -76,7 +76,7 @@ export default function Home() {
   async function lookup(e?: FormEvent) {
     e?.preventDefault(); setLoading(true); setMessage("");
     try {
-      const response = await fetch(`/api/customers/${encodeURIComponent(cid.trim())}`);
+      const response = await fetch(`/api/customers?cid=${encodeURIComponent(cid.trim())}`);
       const json = await response.json();
       if (!response.ok) throw new Error(json.message);
       setCustomer(json.data.customer); setTickets(json.data.tickets); navigate("details");
@@ -99,7 +99,7 @@ export default function Home() {
   async function updateStatus(ticketNo: string, status: string) {
     setLoading(true); setMessage("");
     try {
-      const response = await fetch(`/api/tickets/${ticketNo}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    const response = await fetch("/api/tickets", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticketNo, status }) });
       const json = await response.json();
       if (!response.ok) throw new Error(json.message || "Unable to update ticket");
       setMessage(json.message);
@@ -120,7 +120,7 @@ export default function Home() {
       if (!response.ok) throw new Error(json.message);
       setMessage(json.message); setCid(json.data.cid); setShowCustomerForm(false);
       setCustomerForm({ cid: "", name: "", phone: "", email: "", address: "", packageId: packages[0] ? String(packages[0].id) : "", nextPaymentDate: "", accountStatus: "active" });
-      const customerResponse = await fetch(`/api/customers/${encodeURIComponent(json.data.cid)}`);
+      const customerResponse = await fetch(`/api/customers?cid=${encodeURIComponent(json.data.cid)}`);
       const customerJson = await customerResponse.json();
       if (customerJson.success) { setCustomer(customerJson.data.customer); setTickets(customerJson.data.tickets); navigate("details"); }
       await loadCustomers();
@@ -131,7 +131,7 @@ export default function Home() {
   async function openCustomer(customerCid: string) {
     setCid(customerCid); setLoading(true); setMessage("");
     try {
-      const response = await fetch(`/api/customers/${encodeURIComponent(customerCid)}`); const json = await response.json();
+      const response = await fetch(`/api/customers?cid=${encodeURIComponent(customerCid)}`); const json = await response.json();
       if (!response.ok) throw new Error(json.message);
       setCustomer(json.data.customer); setTickets(json.data.tickets); navigate("details");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Customer lookup failed"); }
@@ -210,13 +210,13 @@ export default function Home() {
     {view === "developer" && <section className="docs-page">
       <div className="docs-hero"><div><p className="eyebrow"><BookOpen size={14}/> DEVELOPER PORTAL</p><h1>NetDesk API documentation</h1><span>Integrate customer lookup and support ticket workflows with your applications.</span></div><a href="/api/docs" target="_blank">OpenAPI JSON <ExternalLink/></a></div>
       <div className="docs-layout">
-        <nav className="docs-nav"><b>API REFERENCE</b><a href="#customers">Customers</a><a href="#packages">Packages</a><a href="#tickets">Tickets</a><a href="#responses">Response format</a></nav>
+        <nav className="docs-nav"><b>API REFERENCE</b><button onClick={() => document.getElementById("customers")?.scrollIntoView({behavior:"smooth"})}>Customers</button><button onClick={() => document.getElementById("packages")?.scrollIntoView({behavior:"smooth"})}>Packages</button><button onClick={() => document.getElementById("tickets")?.scrollIntoView({behavior:"smooth"})}>Tickets</button><button onClick={() => document.getElementById("responses")?.scrollIntoView({behavior:"smooth"})}>Response format</button></nav>
         <div className="docs-content">
           <article className="doc-intro"><h2>Getting started</h2><p>All endpoints accept and return JSON. The local API base URL is:</p><pre><code>http://localhost:3008</code></pre><div className="doc-note"><b>Authentication</b><span>This local version does not currently require an API key. Add authentication before exposing it publicly.</span></div></article>
 
           <section id="customers" className="doc-section"><div className="doc-title"><Users/><div><h2>Customers</h2><p>List, create and retrieve ISP customer accounts.</p></div></div>
             <ApiEndpoint method="GET" path="/api/customers" description="Returns every customer with package, billing status and open-ticket count." response={'{"success":true,"data":[{"cid":"CID-10021","name":"Arif Rahman","packageName":"Family","speedMbps":40,"accountStatus":"active","openTickets":1}]}'} />
-            <ApiEndpoint method="GET" path="/api/customers/{cid}" description="Returns one customer and their ten most recent tickets." response={'{"success":true,"data":{"customer":{"cid":"CID-10021","name":"Arif Rahman"},"tickets":[]}}'} />
+            <ApiEndpoint method="GET" path="/api/customers" description="Returns one customer and their ten most recent tickets when the CID query parameter is supplied." parameters={[{name:"cid",location:"query",required:true,example:"CID-10021"}]} response={'{"success":true,"data":{"customer":{"cid":"CID-10021","name":"Arif Rahman"},"tickets":[]}}'} />
             <ApiEndpoint method="POST" path="/api/customers" description="Creates a customer. CID must be unique." request={'{"cid":"CID-10024","name":"Rahim Ahmed","phone":"01700111222","email":"rahim@example.com","address":"Dhaka","packageId":2,"nextPaymentDate":"2026-09-01","accountStatus":"active"}'} response={'{"success":true,"message":"Customer created successfully","data":{"id":4,"cid":"CID-10024"}}'} />
           </section>
 
@@ -226,9 +226,9 @@ export default function Home() {
 
           <section id="tickets" className="doc-section"><div className="doc-title"><TicketIcon/><div><h2>Tickets</h2><p>Create complaints and manage their resolution state.</p></div></div>
             <ApiEndpoint method="GET" path="/api/tickets" description="Returns all tickets with customer information and note count." response={'{"success":true,"data":[{"ticketNo":"TKT-240001","customerName":"Arif Rahman","status":"in_progress"}]}'} />
-            <ApiEndpoint method="GET" path="/api/tickets/{ticketNo}" description="Returns a ticket and every note attached to it." response={'{"success":true,"data":{"ticket":{"ticketNo":"TKT-240001"},"notes":[]}}'} />
+            <ApiEndpoint method="GET" path="/api/tickets" description="Returns a ticket and every note attached to it when ticketNo is supplied." parameters={[{name:"ticketNo",location:"query",required:true,example:"TKT-240001"}]} response={'{"success":true,"data":{"ticket":{"ticketNo":"TKT-240001"},"notes":[]}}'} />
             <ApiEndpoint method="POST" path="/api/tickets" description="Creates a ticket. If the same customer already has an unresolved ticket in this category, the complaint becomes a note on that ticket." request={'{"cid":"CID-10021","category":"no_internet","subject":"No connection","description":"Connection is unavailable.","priority":"high"}'} response={'{"success":true,"data":{"action":"created","ticketNo":"TKT-12345678","message":"Ticket created successfully."}}'} />
-            <ApiEndpoint method="PATCH" path="/api/tickets/{ticketNo}/status" description="Updates a ticket to open, in_progress, resolved or closed." request={'{"status":"resolved"}'} response={'{"success":true,"message":"Ticket status updated"}'} />
+            <ApiEndpoint method="PATCH" path="/api/tickets" description="Updates a ticket to open, in_progress, resolved or closed. The ticket number is sent in the JSON body." request={'{"ticketNo":"TKT-240001","status":"resolved"}'} response={'{"success":true,"message":"Ticket status updated"}'} />
           </section>
 
           <section id="responses" className="doc-section response-doc"><h2>Response conventions</h2><p>Successful responses contain <code>success: true</code>. Errors contain <code>success: false</code> and a readable <code>message</code>.</p><div className="status-codes"><span><b>200</b> Success</span><span><b>201</b> Created</span><span><b>400</b> Invalid input</span><span><b>404</b> Not found</span><span><b>409</b> Duplicate CID</span><span><b>500</b> Server error</span></div></section>
@@ -275,6 +275,6 @@ export default function Home() {
   </main>;
 }
 
-function ApiEndpoint({ method, path, description, request, response }: { method: "GET" | "POST" | "PATCH"; path: string; description: string; request?: string; response: string }) {
-  return <article className="endpoint"><div className="endpoint-head"><span className={`method ${method.toLowerCase()}`}>{method}</span><code>{path}</code></div><p>{description}</p>{request && <div className="code-sample"><b>REQUEST BODY</b><pre><code>{JSON.stringify(JSON.parse(request), null, 2)}</code></pre></div>}<div className="code-sample"><b>EXAMPLE RESPONSE</b><pre><code>{JSON.stringify(JSON.parse(response), null, 2)}</code></pre></div></article>;
+function ApiEndpoint({ method, path, description, request, response, parameters }: { method: "GET" | "POST" | "PATCH"; path: string; description: string; request?: string; response: string; parameters?: {name:string;location:"query";required:boolean;example:string}[] }) {
+  return <article className="endpoint"><div className="endpoint-head"><span className={`method ${method.toLowerCase()}`}>{method}</span><code>{path}</code></div><p>{description}</p>{parameters && <div className="parameter-list"><b>PARAMETERS</b>{parameters.map(parameter => <div key={parameter.name}><code>{parameter.name}</code><span>{parameter.location}</span><i>{parameter.required ? "required" : "optional"}</i><small>Example: {parameter.example}</small></div>)}<pre><code>{`${path}?${parameters.map(parameter => `${parameter.name}=${encodeURIComponent(parameter.example)}`).join("&")}`}</code></pre></div>}{request && <div className="code-sample"><b>REQUEST BODY</b><pre><code>{JSON.stringify(JSON.parse(request), null, 2)}</code></pre></div>}<div className="code-sample"><b>EXAMPLE RESPONSE</b><pre><code>{JSON.stringify(JSON.parse(response), null, 2)}</code></pre></div></article>;
 }

@@ -6,9 +6,23 @@ import { apiError } from "@/lib/http";
 const categories = ["no_internet", "slow_speed", "billing", "line_issue", "other"];
 const priorities = ["low", "medium", "high", "urgent"];
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const { db } = await import("@/lib/db");
+    const ticketNo = request.nextUrl.searchParams.get("ticketNo");
+    if (ticketNo) {
+      const [tickets] = await db.query(`
+        SELECT t.id, t.ticket_no AS ticketNo, t.category, t.subject, t.description,
+          t.status, t.priority, t.created_at AS createdAt,
+          c.cid, c.name AS customerName
+        FROM tickets t JOIN customers c ON c.id = t.customer_id
+        WHERE t.ticket_no = ? LIMIT 1
+      `, [ticketNo]);
+      if (!Array.isArray(tickets) || !tickets.length) return NextResponse.json({ success: false, message: "Ticket not found" }, { status: 404 });
+      const ticket = tickets[0] as { id: number };
+      const [notes] = await db.query("SELECT id, note, created_at AS createdAt FROM ticket_notes WHERE ticket_id = ? ORDER BY created_at DESC", [ticket.id]);
+      return NextResponse.json({ success: true, data: { ticket, notes } });
+    }
     const [tickets] = await db.query(`
       SELECT t.ticket_no AS ticketNo, t.category, t.subject, t.description,
         t.status, t.priority, t.created_at AS createdAt, t.updated_at AS updatedAt,
@@ -18,6 +32,21 @@ export async function GET() {
       ORDER BY t.created_at DESC
     `);
     return NextResponse.json({ success: true, data: tickets });
+  } catch (error) { return apiError(error); }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const { ticketNo, status } = await request.json();
+    if (!ticketNo?.trim()) return NextResponse.json({ success: false, message: "ticketNo is required" }, { status: 400 });
+    if (!["open", "in_progress", "resolved", "closed"].includes(status)) return NextResponse.json({ success: false, message: "Invalid status" }, { status: 400 });
+    const { db } = await import("@/lib/db");
+    const [result] = await db.execute(`
+      UPDATE tickets SET status = ?, resolved_at = IF(? = 'resolved', CURRENT_TIMESTAMP, NULL)
+      WHERE ticket_no = ?
+    `, [status, status, ticketNo.trim()]);
+    if (!(result as { affectedRows: number }).affectedRows) return NextResponse.json({ success: false, message: "Ticket not found" }, { status: 404 });
+    return NextResponse.json({ success: true, message: "Ticket status updated" });
   } catch (error) { return apiError(error); }
 }
 
