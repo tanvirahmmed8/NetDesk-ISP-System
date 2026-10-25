@@ -1,17 +1,27 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import DataManager from "./components/DataManager";
+import McpDocs from "./components/McpDocs";
+import McpSettings from "./components/McpSettings";
+import AnalyticsDashboard from "./components/AnalyticsDashboard";
+import PackageCatalog from "./components/PackageCatalog";
+import OperationsWorkspace from "./components/OperationsWorkspace";
+import ReportImports from "./components/ReportImports";
+import { PackageDetails, connectionNames } from "@/lib/package-details";
+import { customerMatchesSearch } from "@/lib/phone";
 import { Activity, BookOpen, CalendarDays, ChevronRight, CircleDollarSign, Code2, ExternalLink, Gauge, Headphones, LayoutDashboard, MapPin, Package, Phone, Plus, Search, Send, Ticket as TicketIcon, UserRound, Users, Wifi, X } from "lucide-react";
 
-type Ticket = { ticketNo: string; category: string; subject: string; description: string; status: string; priority: string; createdAt: string; noteCount: number; cid?: string; customerName?: string };
-type Customer = { cid: string; name: string; phone: string; email?: string; address: string; nextPaymentDate: string; accountStatus: string; packageName: string; speedMbps: number; packagePrice: string; openTickets?: number };
-type InternetPackage = { id: number; name: string; speedMbps: number; price: string };
+type Ticket = { ticketNo: string; category: string; subject: string; description: string; status: string; priority: string; createdAt: string; noteCount: number; cid?: string; phone?:string; customerName?: string };
+type Customer = { cid: string; name: string; phone: string; email?: string; address: string; nextPaymentDate: string|null; accountStatus: string; packageName: string; speedMbps: number; packagePrice: string; openTickets?: number; packageId?:number; packageMonthlyTotal?:number|string; unlimited?:boolean|number; serviceHours?:number; connectionType?:string; publicIpCount?:number; otcCharge?:number|string; supportHours?:string; vatPercent?:number|string; vatIncluded?:boolean|number };
+type InternetPackage = PackageDetails;
 
 const categoryNames: Record<string, string> = { no_internet: "No internet", slow_speed: "Slow speed", billing: "Billing", line_issue: "Line issue", other: "Other" };
 const pretty = (value: string) => value.replaceAll("_", " ").replace(/\b\w/g, c => c.toUpperCase());
-const date = (value: string) => new Intl.DateTimeFormat("en-BD", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
+const date = (value: string|null) => value ? new Intl.DateTimeFormat("en-BD", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value)) : "Not set";
 
 export default function Home() {
+  const [opsKey,setOpsKey]=useState("");
   const [cid, setCid] = useState("CID-10021");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -19,9 +29,11 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [packages, setPackages] = useState<InternetPackage[]>([]);
-  const [view, setView] = useState<"customers" | "tickets" | "packages" | "details" | "developer">("customers");
+  const [view, setView] = useState<"dashboard" | "customers" | "tickets" | "packages" | "details" | "developer" | "mcp" | "settings" | "operations" | "imports">("dashboard");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+  const [customerSearch,setCustomerSearch]=useState("");
+  const [ticketSearch,setTicketSearch]=useState("");
   const [form, setForm] = useState({ category: "no_internet", priority: "medium", subject: "", description: "" });
   const [customerForm, setCustomerForm] = useState({ cid: "", name: "", phone: "", email: "", address: "", packageId: "", nextPaymentDate: "", accountStatus: "active" });
 
@@ -39,14 +51,15 @@ export default function Home() {
   useEffect(() => {
     const syncHash = () => {
       const route = window.location.hash.slice(1);
-      if (route === "customers" || route === "tickets" || route === "packages" || route === "details" || route === "developer") setView(route);
+      if (!route || route === "dashboard") setView("dashboard");
+      else if (route === "customers" || route === "tickets" || route === "packages" || route === "details" || route === "developer" || route === "mcp" || route === "settings" || route === "operations" || route === "imports") setView(route);
     };
     syncHash();
     window.addEventListener("hashchange", syncHash);
     return () => window.removeEventListener("hashchange", syncHash);
   }, []);
 
-  function navigate(nextView: "customers" | "tickets" | "packages" | "details" | "developer") {
+  function navigate(nextView: "dashboard" | "customers" | "tickets" | "packages" | "details" | "developer" | "mcp" | "settings" | "operations" | "imports") {
     setView(nextView);
     window.history.replaceState(null, "", `#${nextView}`);
   }
@@ -73,10 +86,23 @@ export default function Home() {
     }
   }
 
+  async function refreshData() {
+    await Promise.all([loadCustomers(),loadTickets()]);
+    const response = await fetch("/api/packages");
+    const json = await response.json();
+    if (!response.ok) throw new Error(json.message || "Unable to load packages");
+    setPackages(json.data);
+    if (customer) {
+      const detailResponse = await fetch(`/api/customers?cid=${encodeURIComponent(customer.cid)}`);
+      if (detailResponse.ok) { const detail = await detailResponse.json();setCustomer(detail.data.customer);setTickets(detail.data.tickets); }
+      else {setCustomer(null);setTickets([]);}
+    }
+  }
+
   async function lookup(e?: FormEvent) {
     e?.preventDefault(); setLoading(true); setMessage("");
     try {
-      const response = await fetch(`/api/customers?cid=${encodeURIComponent(cid.trim())}`);
+      const response = await fetch(`/api/customers?search=${encodeURIComponent(cid.trim())}`);
       const json = await response.json();
       if (!response.ok) throw new Error(json.message);
       setCustomer(json.data.customer); setTickets(json.data.tickets); navigate("details");
@@ -91,7 +117,7 @@ export default function Home() {
       const response = await fetch("/api/tickets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cid: customer.cid, ...form }) });
       const json = await response.json();
       if (!response.ok) throw new Error(json.message);
-      setMessage(json.data.message); setForm({ ...form, subject: "", description: "" }); await lookup();
+      setMessage(json.data.message); setForm({ ...form, subject: "", description: "" }); await refreshData();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Ticket creation failed"); }
     finally { setLoading(false); }
   }
@@ -103,7 +129,7 @@ export default function Home() {
       const json = await response.json();
       if (!response.ok) throw new Error(json.message || "Unable to update ticket");
       setMessage(json.message);
-      if (view === "details") await lookup();
+      if (view === "details") await refreshData();
       await loadTickets();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to update ticket");
@@ -142,28 +168,34 @@ export default function Home() {
     <aside className="sidebar">
       <div className="side-brand"><span><Wifi size={22}/></span><div><b>NetDesk</b><small>ISP Operations</small></div></div>
       <p className="menu-label">WORKSPACE</p>
+      <button className={view === "dashboard" ? "active" : ""} onClick={() => navigate("dashboard")}><LayoutDashboard/><span>Overview</span></button>
       <button className={view === "customers" ? "active" : ""} onClick={() => navigate("customers")}><Users/><span>Customer list</span><b>{customers.length}</b></button>
       <button className={view === "tickets" ? "active" : ""} onClick={() => navigate("tickets")}><TicketIcon/><span>Ticket list</span><b>{allTickets.length}</b></button>
       <button className={view === "packages" ? "active" : ""} onClick={() => navigate("packages")}><Package/><span>Package list</span><b>{packages.length}</b></button>
       <button className={view === "details" ? "active" : ""} onClick={() => navigate("details")}><UserRound/><span>Customer details</span></button>
+      <button className={view === "operations" ? "active" : ""} onClick={() => navigate("operations")}><Users/><span>Operations & billing</span></button>
+      <button className={view === "imports" ? "active" : ""} onClick={() => navigate("imports")}><Send/><span>Report imports</span></button>
       <p className="menu-label developer-label">SYSTEM</p>
-      <button className={view === "developer" ? "active" : ""} onClick={() => navigate("developer")}><Code2/><span>Developer API</span></button>
-      <div className="side-bottom"><span className="pulse"/><div><b>System online</b><small>Database connected</small></div></div>
+      <button className={view === "developer" ? "active" : ""} onClick={() => navigate("developer")}><Code2/><span>API docs</span></button>
+      <button className={view === "mcp" ? "active" : ""} onClick={() => navigate("mcp")}><BookOpen/><span>MCP docs</span></button>
+      <button className={view === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Gauge/><span>Settings</span></button>
+      <div className="side-bottom"><Wifi size={16}/><div><b>NetDesk workspace</b><small>Customer care & operations</small></div></div>
     </aside>
     <div className="main-area">
     <header>
-      <div className="page-context"><LayoutDashboard/><div><b>{view === "customers" ? "Customers" : view === "tickets" ? "Support tickets" : view === "packages" ? "Internet packages" : view === "developer" ? "Developer API" : "Customer details"}</b><small>NetDesk dashboard</small></div></div>
+      <div className="page-context"><LayoutDashboard/><div><b>{view === "dashboard" ? "Overview" : view === "customers" ? "Customers" : view === "tickets" ? "Support tickets" : view === "packages" ? "Internet packages" : view === "developer" ? "API documentation" : view === "mcp" ? "MCP documentation" : view === "settings" ? "Settings" : view === "operations" ? "Operations & billing" : view === "imports" ? "Report imports" : "Customer details"}</b><small>NetDesk dashboard</small></div></div>
       <nav><button onClick={() => setShowCustomerForm(true)}><Plus size={15}/> New customer</button></nav>
     </header>
 
+    {view === "dashboard" && <AnalyticsDashboard onCustomers={() => navigate("customers")} onTickets={() => navigate("tickets")} onPackages={() => navigate("packages")} onNewCustomer={() => setShowCustomerForm(true)} onCustomer={cid => {void openCustomer(cid);}}/>}
     {view === "details" && <section className="hero">
-      <div className="lookup-title"><div><p className="eyebrow"><Headphones size={15}/> CUSTOMER LOOKUP</p><h1>Customer details</h1></div><p>Search by CID to review service and billing information.</p></div>
+      <div className="lookup-title"><div><p className="eyebrow"><Headphones size={15}/> CUSTOMER LOOKUP</p><h1>Customer details</h1></div><p>Search by CID or phone to review service and billing information.</p></div>
       <form className="search" onSubmit={lookup}>
-        <Search size={20}/><input value={cid} onChange={e => setCid(e.target.value)} placeholder="Enter customer CID, e.g. CID-10021"/><button disabled={loading}>{loading ? "Searching…" : "Find customer"}</button>
+        <Search size={20}/><input value={cid} onChange={e => setCid(e.target.value)} aria-label="Customer CID or phone" placeholder="Enter CID or phone, e.g. CID-10021 / 01711234567"/><button disabled={loading}>{loading ? "Searching…" : "Find customer"}</button>
       </form>
     </section>}
 
-    {message && <div className="notice">{message}</div>}
+    {message && view !== "dashboard" && <div className="notice">{message}</div>}
 
     {showCustomerForm && <div className="modal-backdrop" onMouseDown={() => setShowCustomerForm(false)}>
       <form className="customer-modal" onSubmit={createCustomer} onMouseDown={e => e.stopPropagation()}>
@@ -174,7 +206,7 @@ export default function Home() {
           <label>Phone number<input required value={customerForm.phone} onChange={e => setCustomerForm({...customerForm, phone:e.target.value})} placeholder="01XXXXXXXXX"/></label>
           <label>Email address<input type="email" value={customerForm.email} onChange={e => setCustomerForm({...customerForm, email:e.target.value})} placeholder="Optional"/></label>
           <label className="wide">Service address<textarea rows={2} value={customerForm.address} onChange={e => setCustomerForm({...customerForm, address:e.target.value})} placeholder="Installation address"/></label>
-          <label>Internet package<select required value={customerForm.packageId} onChange={e => setCustomerForm({...customerForm, packageId:e.target.value})}>{packages.map(pkg => <option value={pkg.id} key={pkg.id}>{pkg.name} — {pkg.speedMbps} Mbps — ৳{Number(pkg.price).toLocaleString()}</option>)}</select></label>
+          <label>Internet package<select required value={customerForm.packageId} onChange={e => setCustomerForm({...customerForm, packageId:e.target.value})}>{packages.map(pkg => <option value={pkg.id} key={pkg.id}>{pkg.name} — {pkg.speedMbps} Mbps — ৳{Number(pkg.monthlyTotal).toLocaleString()}</option>)}</select></label>
           <label>Next payment date<input required type="date" value={customerForm.nextPaymentDate} onChange={e => setCustomerForm({...customerForm, nextPaymentDate:e.target.value})}/></label>
           <label>Account status<select value={customerForm.accountStatus} onChange={e => setCustomerForm({...customerForm, accountStatus:e.target.value})}><option value="active">Active</option><option value="suspended">Suspended</option><option value="inactive">Inactive</option></select></label>
           <div className="package-preview"><Package size={19}/><div><b>{packages.find(pkg => String(pkg.id) === customerForm.packageId)?.name ?? "Select package"}</b><span>{packages.find(pkg => String(pkg.id) === customerForm.packageId)?.speedMbps ?? 0} Mbps connection</span></div></div>
@@ -184,50 +216,53 @@ export default function Home() {
     </div>}
 
     {view === "customers" && <section className="list-page">
+      <DataManager entity="customers" records={customers} packages={packages} onRefresh={refreshData} accessKey={opsKey} onKeyChange={setOpsKey}/>
       <div className="list-heading"><div><p className="eyebrow">SUBSCRIBER MANAGEMENT</p><h1>Customer list</h1><span>View and manage all ISP customer accounts.</span></div><button onClick={() => setShowCustomerForm(true)}><Plus/> Add customer</button></div>
-      <div className="data-card"><div className="table-tools"><div><Search/><input placeholder="Search customers" onChange={e => { const q=e.target.value.toLowerCase(); document.querySelectorAll<HTMLElement>('[data-customer]').forEach(row => row.style.display=(row.dataset.customer ?? '').includes(q)?'':'none'); }}/></div><span>{customers.length} customers</span></div>
-      <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Contact</th><th>Package</th><th>Next payment</th><th>Status</th><th>Tickets</th><th></th></tr></thead><tbody>{customers.map(item => <tr key={item.cid} data-customer={`${item.cid} ${item.name} ${item.phone}`.toLowerCase()} onClick={() => openCustomer(item.cid)}><td><div className="table-person"><i>{item.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</i><span><b>{item.name}</b><small>{item.cid}</small></span></div></td><td><b>{item.phone}</b><small>{item.email || 'No email'}</small></td><td><b>{item.packageName}</b><small>{item.speedMbps} Mbps · ৳{Number(item.packagePrice).toLocaleString()}</small></td><td>{date(item.nextPaymentDate)}</td><td><span className={`status ${item.accountStatus}`}>{item.accountStatus}</span></td><td>{item.openTickets ?? 0} open</td><td><ChevronRight/></td></tr>)}</tbody></table></div></div>
+      <div className="data-card"><div className="table-tools"><div><Search/><input aria-label="Search customers" placeholder="Search CID, name or phone" value={customerSearch} onChange={e => setCustomerSearch(e.target.value)}/></div><span>{customers.length} customers</span></div>
+      <div className="table-wrap"><table><thead><tr><th>Customer</th><th>Contact</th><th>Package</th><th>Next payment</th><th>Status</th><th>Tickets</th><th></th></tr></thead><tbody>{customers.filter(item=>customerMatchesSearch(item,customerSearch)).map(item => <tr key={item.cid} data-customer={`${item.cid} ${item.name} ${item.phone}`.toLowerCase()} onClick={() => openCustomer(item.cid)}><td><div className="table-person"><i>{item.name.split(' ').map(x=>x[0]).slice(0,2).join('')}</i><span><b>{item.name}</b><small>{item.cid}</small></span></div></td><td><b>{item.phone}</b><small>{item.email || 'No email'}</small></td><td><b>{item.packageName}</b><small>{item.speedMbps} Mbps · ৳{Number(item.packageMonthlyTotal??item.packagePrice).toLocaleString()}</small></td><td>{date(item.nextPaymentDate)}</td><td><span className={`status ${item.accountStatus}`}>{item.accountStatus}</span></td><td>{item.openTickets ?? 0} open</td><td><ChevronRight/></td></tr>)}</tbody></table></div></div>
     </section>}
 
     {view === "tickets" && <section className="list-page">
+      <DataManager entity="tickets" records={allTickets} packages={packages} onRefresh={refreshData} accessKey={opsKey} onKeyChange={setOpsKey}/>
       <div className="list-heading"><div><p className="eyebrow">SUPPORT MANAGEMENT</p><h1>Ticket list</h1><span>Track and update complaints across all customers.</span></div></div>
-      <div className="data-card"><div className="table-tools"><span>{allTickets.length} support tickets</span></div><div className="table-wrap"><table><thead><tr><th>Ticket</th><th>Customer</th><th>Issue</th><th>Priority</th><th>Created</th><th>Status</th></tr></thead><tbody>{allTickets.map(ticket => <tr key={ticket.ticketNo}><td><b className="ticket-no">{ticket.ticketNo}</b><small>{ticket.noteCount} notes</small></td><td><button className="customer-link" onClick={() => openCustomer(ticket.cid!)}>{ticket.customerName}<small>{ticket.cid}</small></button></td><td><b>{ticket.subject}</b><small>{categoryNames[ticket.category]}</small></td><td><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></td><td>{date(ticket.createdAt)}</td><td><select value={ticket.status} onChange={e => updateStatus(ticket.ticketNo,e.target.value)}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></td></tr>)}</tbody></table></div></div>
+      <div className="data-card"><div className="table-tools"><div><Search/><input aria-label="Search tickets" placeholder="Search ticket, CID, name or phone" value={ticketSearch} onChange={e=>setTicketSearch(e.target.value)}/></div><span>{allTickets.length} support tickets</span></div><div className="table-wrap"><table><thead><tr><th>Ticket</th><th>Customer</th><th>Issue</th><th>Priority</th><th>Created</th><th>Status</th></tr></thead><tbody>{allTickets.filter(ticket=>!ticketSearch.trim()||[ticket.ticketNo,ticket.subject].some(value=>value.toLowerCase().includes(ticketSearch.trim().toLowerCase()))||customerMatchesSearch({cid:ticket.cid,name:ticket.customerName,phone:ticket.phone},ticketSearch)).map(ticket => <tr key={ticket.ticketNo}><td><b className="ticket-no">{ticket.ticketNo}</b><small>{ticket.noteCount} notes</small></td><td><button className="customer-link" disabled={!ticket.cid} onClick={() => {if(ticket.cid)void openCustomer(ticket.cid);}}>{ticket.customerName}<small>{ticket.cid}</small></button></td><td><b>{ticket.subject}</b><small>{categoryNames[ticket.category]}</small></td><td><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></td><td>{date(ticket.createdAt)}</td><td><select value={ticket.status} onChange={e => updateStatus(ticket.ticketNo,e.target.value)}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></td></tr>)}</tbody></table></div></div>
     </section>}
 
     {view === "packages" && <section className="list-page">
+      <DataManager entity="packages" records={packages} packages={packages} onRefresh={refreshData} accessKey={opsKey} onKeyChange={setOpsKey}/>
       <div className="list-heading"><div><p className="eyebrow">SERVICE CATALOG</p><h1>Package list</h1><span>Internet plans currently available to customers.</span></div></div>
-      <div className="package-grid">{packages.map((pkg, index) => <article className="package-card" key={pkg.id}>
-        <div className="package-card-top"><span><Package/></span><small>PKG-{String(pkg.id).padStart(3,"0")}</small></div>
-        <h2>{pkg.name}</h2><p>Broadband internet package</p>
-        <div className="package-speed"><b>{pkg.speedMbps}</b><span>Mbps<br/>speed</span></div>
-        <div className="package-price"><span>Monthly charge</span><b>৳{Number(pkg.price).toLocaleString()}</b></div>
-        <div className="package-meta"><span className="status active">Available</span><span>{customers.filter(customer => customer.packageName === pkg.name).length} customers</span></div>
-        {index === 1 && <i className="popular">POPULAR</i>}
-      </article>)}</div>
+      <PackageCatalog packages={packages} customers={customers} onChoose={id=>{setCustomerForm(current=>({...current,packageId:String(id)}));setShowCustomerForm(true);}}/>
       {packages.length === 0 && <div className="empty"><div><Package size={30}/></div><h2>No packages found</h2><p>Add packages to the database to display them here.</p></div>}
     </section>}
 
+    {view === "operations" && <OperationsWorkspace accessKey={opsKey} onKeyChange={setOpsKey}/>}
+    {view === "imports" && <ReportImports accessKey={opsKey} onKeyChange={setOpsKey}/>}
+    {view === "mcp" && <McpDocs/>}
+    {view === "settings" && <McpSettings/>}
     {view === "developer" && <section className="docs-page">
       <div className="docs-hero"><div><p className="eyebrow"><BookOpen size={14}/> DEVELOPER PORTAL</p><h1>NetDesk API documentation</h1><span>Integrate customer lookup and support ticket workflows with your applications.</span></div><a href="/api/docs" target="_blank">OpenAPI JSON <ExternalLink/></a></div>
       <div className="docs-layout">
         <nav className="docs-nav"><b>API REFERENCE</b><button onClick={() => document.getElementById("customers")?.scrollIntoView({behavior:"smooth"})}>Customers</button><button onClick={() => document.getElementById("packages")?.scrollIntoView({behavior:"smooth"})}>Packages</button><button onClick={() => document.getElementById("tickets")?.scrollIntoView({behavior:"smooth"})}>Tickets</button><button onClick={() => document.getElementById("responses")?.scrollIntoView({behavior:"smooth"})}>Response format</button></nav>
         <div className="docs-content">
           <article className="doc-intro"><h2>Getting started</h2><p>All endpoints accept and return JSON. The local API base URL is:</p><pre><code>http://localhost:3008</code></pre><div className="doc-note"><b>Authentication</b><span>This local version does not currently require an API key. Add authentication before exposing it publicly.</span></div></article>
+          <article className="endpoint"><h2>Demo CRUD and bulk import</h2><p>Customer, package and ticket endpoints support PUT for complete edits and DELETE for deletion. Send the identifier in JSON: cid for customers, id for packages, ticketNo for tickets. Updates require all editable fields. Packages also support POST with name, speedMbps and price. A package with subscribers cannot be deleted.</p><p>POST /api/import accepts an entity (customers, packages or tickets) and rows array. Maximum 500 rows. Every row is validated and saved separately; the response includes imported and failed counts plus row-level results. Download the CSV templates from each list page.</p><div className="code-sample"><b>IMPORT REQUEST</b><pre>{JSON.stringify({entity:"packages",rows:[{name:"Demo Plan",speedMbps:50,price:1000}]},null,2)}</pre></div><p>Deleting customers removes their tickets and notes. Ticket deletion also removes its notes.</p></article>
 
           <section id="customers" className="doc-section"><div className="doc-title"><Users/><div><h2>Customers</h2><p>List, create and retrieve ISP customer accounts.</p></div></div>
             <ApiEndpoint method="GET" path="/api/customers" description="Returns every customer with package, billing status and open-ticket count." response={'{"success":true,"data":[{"cid":"CID-10021","name":"Arif Rahman","packageName":"Family","speedMbps":40,"accountStatus":"active","openTickets":1}]}'} />
-            <ApiEndpoint method="GET" path="/api/customers" description="Returns one customer and their ten most recent tickets when the CID query parameter is supplied." parameters={[{name:"cid",location:"query",required:true,example:"CID-10021"}]} response={'{"success":true,"data":{"customer":{"cid":"CID-10021","name":"Arif Rahman"},"tickets":[]}}'} />
+            <ApiEndpoint method="GET" path="/api/customers" description="Returns one customer and ten recent tickets. Supply a CID or phone number; the cid parameter tries exact CID before phone fallback." parameters={[{name:"cid",location:"query",required:true,example:"CID-10021"}]} response={'{"success":true,"data":{"customer":{"cid":"CID-10021","name":"Arif Rahman"},"tickets":[]}}'} />
+            <ApiEndpoint method="GET" path="/api/customers" description="Look up by phone. Spaces, hyphens and +880 formats are supported. A shared phone returns 409: use CID instead. The search query parameter accepts either CID or phone." parameters={[{name:"phone",location:"query",required:true,example:"01711234567"}]} response={'{"success":true,"data":{"customer":{"cid":"CID-10021","phone":"01711-234567"},"tickets":[]}}'} />
             <ApiEndpoint method="POST" path="/api/customers" description="Creates a customer. CID must be unique." request={'{"cid":"CID-10024","name":"Rahim Ahmed","phone":"01700111222","email":"rahim@example.com","address":"Dhaka","packageId":2,"nextPaymentDate":"2026-09-01","accountStatus":"active"}'} response={'{"success":true,"message":"Customer created successfully","data":{"id":4,"cid":"CID-10024"}}'} />
           </section>
 
           <section id="packages" className="doc-section"><div className="doc-title"><Package/><div><h2>Packages</h2><p>Read available internet plans.</p></div></div>
             <ApiEndpoint method="GET" path="/api/packages" description="Returns packages ordered by monthly price." response={'{"success":true,"data":[{"id":1,"name":"Starter","speedMbps":20,"price":"800.00"}]}'} />
+            <ApiEndpoint method="POST" path="/api/packages" description="Create a package with unlimited hours, connection type, public IPs, one-time OTC, care hours and VAT. Set vatIncluded=false to add VAT above the listed price. Omitted benefits preserve existing values on PUT." request={'{"name":"CONFIDENT+","speedMbps":200,"price":2000,"unlimited":true,"serviceHours":24,"connectionType":"fiber_optics","publicIpCount":0,"otcCharge":0,"supportHours":"24/7","vatPercent":5,"vatIncluded":false}'} response={'{"success":true,"data":{"id":4}}'} />
           </section>
 
           <section id="tickets" className="doc-section"><div className="doc-title"><TicketIcon/><div><h2>Tickets</h2><p>Create complaints and manage their resolution state.</p></div></div>
             <ApiEndpoint method="GET" path="/api/tickets" description="Returns all tickets with customer information and note count." response={'{"success":true,"data":[{"ticketNo":"TKT-240001","customerName":"Arif Rahman","status":"in_progress"}]}'} />
             <ApiEndpoint method="GET" path="/api/tickets" description="Returns a ticket and every note attached to it when ticketNo is supplied." parameters={[{name:"ticketNo",location:"query",required:true,example:"TKT-240001"}]} response={'{"success":true,"data":{"ticket":{"ticketNo":"TKT-240001"},"notes":[]}}'} />
-            <ApiEndpoint method="POST" path="/api/tickets" description="Creates a ticket. If the same customer already has an unresolved ticket in this category, the complaint becomes a note on that ticket." request={'{"cid":"CID-10021","category":"no_internet","subject":"No connection","description":"Connection is unavailable.","priority":"high"}'} response={'{"success":true,"data":{"action":"created","ticketNo":"TKT-12345678","message":"Ticket created successfully."}}'} />
+            <ApiEndpoint method="POST" path="/api/tickets" description="Creates a ticket using cid or phone. An unresolved ticket in the same customer/category receives a note instead of a duplicate ticket." request={'{"cid":"CID-10021","category":"no_internet","subject":"No connection","description":"Connection is unavailable.","priority":"high"}'} response={'{"success":true,"data":{"action":"created","ticketNo":"TKT-12345678","message":"Ticket created successfully."}}'} />
             <ApiEndpoint method="PATCH" path="/api/tickets" description="Updates a ticket to open, in_progress, resolved or closed. The ticket number is sent in the JSON body." request={'{"ticketNo":"TKT-240001","status":"resolved"}'} response={'{"success":true,"message":"Ticket status updated"}'} />
           </section>
 
@@ -245,11 +280,12 @@ export default function Home() {
 
       <section className="stat-grid">
         <article><div className="icon blue"><Gauge/></div><p>Current package</p><h3>{customer.packageName}</h3><small>{customer.speedMbps} Mbps broadband</small></article>
-        <article><div className="icon purple"><CircleDollarSign/></div><p>Monthly price</p><h3>৳{Number(customer.packagePrice).toLocaleString()}</h3><small>VAT included</small></article>
+        <article><div className="icon purple"><CircleDollarSign/></div><p>Monthly price</p><h3>৳{Number(customer.packageMonthlyTotal??customer.packagePrice).toLocaleString()}</h3><small>{Number(customer.vatPercent||0)>0?`${customer.vatPercent}% VAT ${customer.vatIncluded?"included":"added"}`:"No added VAT"}</small></article>
         <article><div className="icon orange"><CalendarDays/></div><p>Next payment</p><h3>{date(customer.nextPaymentDate)}</h3><small>Billing cycle due date</small></article>
         <article><div className="icon green"><Activity/></div><p>Account status</p><h3>{pretty(customer.accountStatus)}</h3><small>Service {customer.accountStatus === "active" ? "is running normally" : "needs attention"}</small></article>
       </section>
 
+      <section className="customer-package-features panel"><h3>Package benefits</h3><div><span>{customer.serviceHours??24} hours {customer.unlimited?"unlimited":"internet access"}</span><span>{connectionNames[customer.connectionType||"fiber_optics"]||customer.connectionType}</span><span>{Number(customer.publicIpCount||0)} public IPs</span><span>OTC: {Number(customer.otcCharge||0)===0?"Free":`৳${Number(customer.otcCharge).toLocaleString()} (one-time)`}</span><span>{customer.supportHours||"24/7"} customer care</span></div></section>
       <section className="workspace">
         <div className="tickets panel">
           <div className="panel-title"><div><p className="eyebrow">SERVICE HISTORY</p><h2>Recent tickets</h2></div><span>{tickets.length} total</span></div>
@@ -270,6 +306,7 @@ export default function Home() {
           <button className="submit" disabled={loading}>Submit ticket <Send size={16}/></button>
         </form>
       </section>
+      <OperationsWorkspace cid={customer.cid} accessKey={opsKey} onKeyChange={setOpsKey}/>
     </>)}
     </div>
   </main>;

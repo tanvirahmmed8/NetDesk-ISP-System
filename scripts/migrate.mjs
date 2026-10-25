@@ -25,7 +25,11 @@ const connection = await mysql.createConnection({
 });
 
 try {
-  await connection.query(schema);
+  const database=config.DB_NAME??"isp_system";
+  const [existing]=await connection.query("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?",[database]);
+  if(!existing.length)await connection.query("CREATE DATABASE ?? CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",[database]);
+  await connection.query("USE ??",[database]);
+  await connection.query(schema.replace(/^CREATE DATABASE[^;]+;\s*USE[^;]+;\s*/i,""));
   console.log(`Database ${config.DB_NAME ?? "isp_system"} migrated and seeded successfully.`);
 } finally {
   await connection.end();

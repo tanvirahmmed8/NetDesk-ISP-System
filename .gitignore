@@ -1,4 +1,8 @@
 node_modules
 .next
+.next-mcp-check
+.data/
+.data-mcp-check/
+*.tsbuildinfo
 .env
 npm-debug.log*

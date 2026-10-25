@@ -1,37 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ResultSetHeader } from "mysql2";
 import { db } from "@/lib/db";
 import { apiError } from "@/lib/http";
+import { getCustomer } from "@/lib/queries";
+import { packageColumns, monthlyPriceSql } from "@/lib/package-details";
+import { POST as create, PUT as update, DELETE as remove } from "../manage/[entity]/route";
 
-const statuses = ["active", "suspended", "inactive"];
+const context = {params:Promise.resolve({entity:"customers"})};
+export async function PUT(request:NextRequest) {return update(request,context);}
+export async function DELETE(request:NextRequest) {return remove(request,context);}
 
 export async function GET(request: NextRequest) {
   try {
-    const cid = request.nextUrl.searchParams.get("cid");
-    if (cid) {
-      const [customers] = await db.query(`
-        SELECT c.id, c.cid, c.name, c.phone, c.email, c.address,
-          c.next_payment_date AS nextPaymentDate, c.account_status AS accountStatus,
-          p.name AS packageName, p.speed_mbps AS speedMbps, p.price AS packagePrice
-        FROM customers c JOIN packages p ON p.id = c.package_id
-        WHERE c.cid = ? LIMIT 1
-      `, [cid]);
-      if (!Array.isArray(customers) || !customers.length) {
-        return NextResponse.json({ success: false, message: "Customer not found" }, { status: 404 });
-      }
-      const customer = customers[0] as { id: number };
-      const [tickets] = await db.query(`
-        SELECT t.id, t.ticket_no AS ticketNo, t.category, t.subject, t.description,
-          t.status, t.priority, t.created_at AS createdAt, t.updated_at AS updatedAt,
-          (SELECT COUNT(*) FROM ticket_notes n WHERE n.ticket_id = t.id) AS noteCount
-        FROM tickets t WHERE t.customer_id = ? ORDER BY t.created_at DESC LIMIT 10
-      `, [customer.id]);
-      return NextResponse.json({ success: true, data: { customer, tickets } });
+    const params=request.nextUrl.searchParams;
+    if (["cid","phone","search"].some(key=>params.has(key))) {
+      const lookup=Object.fromEntries(["cid","phone","search"].filter(key=>params.has(key)).map(key=>[key,params.get(key)!]));
+      return NextResponse.json({success:true,data:await getCustomer(lookup)});
     }
     const [customers] = await db.query(`
-      SELECT c.cid, c.name, c.phone, c.email, c.address,
+      SELECT c.cid, c.name, c.phone, c.email, c.address, c.package_id AS packageId,
         c.next_payment_date AS nextPaymentDate, c.account_status AS accountStatus,
-        p.name AS packageName, p.speed_mbps AS speedMbps, p.price AS packagePrice,
+        p.name AS packageName, p.speed_mbps AS speedMbps, p.price AS packagePrice,${packageColumns()},COALESCE(c.agreed_mrc,${monthlyPriceSql()}) AS packageMonthlyTotal,
         (SELECT COUNT(*) FROM tickets t WHERE t.customer_id = c.id AND t.status IN ('open','in_progress')) AS openTickets
       FROM customers c JOIN packages p ON p.id = c.package_id
       ORDER BY c.created_at DESC
@@ -42,33 +30,4 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { cid, name, phone, email, address, packageId, nextPaymentDate } = body;
-    const accountStatus = body.accountStatus ?? "active";
-
-    if (!cid?.trim() || !name?.trim() || !phone?.trim() || !packageId || !nextPaymentDate || !statuses.includes(accountStatus)) {
-      return NextResponse.json({ success: false, message: "CID, name, phone, package and payment date are required" }, { status: 400 });
-    }
-
-    const [existing] = await db.query("SELECT id FROM customers WHERE cid = ? LIMIT 1", [cid.trim()]);
-    if (Array.isArray(existing) && existing.length) {
-      return NextResponse.json({ success: false, message: "This CID is already in use" }, { status: 409 });
-    }
-
-    const [result] = await db.execute<ResultSetHeader>(`
-      INSERT INTO customers
-        (cid, name, phone, email, address, package_id, next_payment_date, account_status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, [cid.trim(), name.trim(), phone.trim(), email?.trim() || null, address?.trim() || null, Number(packageId), nextPaymentDate, accountStatus]);
-
-    return NextResponse.json({
-      success: true,
-      message: "Customer created successfully",
-      data: { id: result.insertId, cid: cid.trim() },
-    }, { status: 201 });
-  } catch (error) {
-    return apiError(error);
-  }
-}
+export async function POST(request:NextRequest) {return create(request,context);}

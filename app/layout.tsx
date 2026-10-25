@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./analytics.css";
+import "./packages.css";
+import "./operations.css";
 
 export const metadata: Metadata = { title: "NetDesk ISP", description: "ISP customer care and ticket management" };
 

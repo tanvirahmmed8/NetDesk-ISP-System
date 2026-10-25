@@ -1,0 +1,4 @@
+import { z } from "zod";
+const numeric=z.union([z.number(),z.string().regex(/^\d+(\.\d+)?$/)]).transform(Number);
+const flag=z.union([z.boolean(),z.literal(0),z.literal(1),z.enum(["true","false","1","0","yes","no"])]).transform(value=>value===true||value===1||value==="true"||value==="1"||value==="yes");
+export const packageExtraFields={unlimited:flag.optional(),serviceHours:numeric.pipe(z.number().int().min(1).max(24)).optional(),connectionType:z.enum(["fiber_optics","wireless","ethernet","other"]).optional(),publicIpCount:numeric.pipe(z.number().int().min(0).max(1000)).optional(),otcCharge:numeric.pipe(z.number().min(0).max(99999999.99)).optional(),supportHours:z.string().trim().min(1).max(60).optional(),vatPercent:numeric.pipe(z.number().min(0).max(100)).optional(),vatIncluded:flag.optional()};

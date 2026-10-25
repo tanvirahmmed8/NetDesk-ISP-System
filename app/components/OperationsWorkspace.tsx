@@ -1,0 +1,41 @@
+"use client";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { Field, opsConfig } from "@/lib/ops-config";
+export type OpsRow=Record<string,unknown>;
+export function OperationsAccess({value,onChange}:{value:string;onChange:(value:string)=>void}){
+ const[draft,setDraft]=useState(value);
+ return <form className="ops-access" onSubmit={e=>{e.preventDefault();onChange(draft.trim());}}><label>Operations key <small>Use the existing MCP_API_KEY; kept in memory only.</small><input type="password" autoComplete="off" minLength={32} required value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Enter MCP_API_KEY"/></label><button>Unlock / reload</button>{value&&<button type="button" onClick={()=>{setDraft("");onChange("");}}>Lock</button>}</form>;
+}
+export function OperationsFields({fields,form,onChange,lookups={}}:{fields:Field[];form:OpsRow;onChange:(value:OpsRow)=>void;lookups?:Record<string,OpsRow[]>}){
+ return <div className="form-grid ops-form">{fields.map(field=>{
+  let value=form[field.key]==null?"":String(form[field.key]);if(field.options?.includes("true")&&[0,1].includes(Number(value))&&value!=="")value=Number(value)?"true":"false";
+  if(field.type==="date")value=value.slice(0,10);if(field.type==="datetime-local")value=value.replace(" ","T").slice(0,16);
+  const set=(v:string)=>onChange({...form,[field.key]:v});
+  return <label key={field.key}>{field.label}{field.lookup?<select value={value} required={field.required} onChange={e=>set(e.target.value)}><option value="">Choose / none</option>{(lookups[field.lookup]||[]).map(row=><option key={String(row.id)} value={String(row.id)}>{String(row.name??row.invoiceNo??row.id)}{row.cid?` · ${row.cid}`:""}</option>)}</select>:field.options?<select value={value} required={field.required} onChange={e=>set(e.target.value)}><option value="">Default / not set</option>{field.options.map(option=><option key={option} value={option}>{option.replaceAll("_"," ")}</option>)}</select>:field.type==="textarea"?<textarea rows={3} value={value} required={field.required} onChange={e=>set(e.target.value)}/>:<input type={field.type||"text"} min={field.type==="number"?0:undefined} step={field.type==="number"?"0.01":undefined} value={value} required={field.required} onChange={e=>set(e.target.value)}/>}</label>;
+ })}</div>;
+}
+export default function OperationsWorkspace({accessKey,onKeyChange,cid}:{accessKey:string;onKeyChange:(key:string)=>void;cid?:string}){
+ const tabs=cid?["followups","invoices","payments"]:Object.keys(opsConfig);
+ const[entity,setEntity]=useState(tabs[0]),[rows,setRows]=useState<OpsRow[]>([]),[lookups,setLookups]=useState<Record<string,OpsRow[]>>({});
+ const[form,setForm]=useState<OpsRow|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[search,setSearch]=useState("");
+ const[profile,setProfile]=useState<OpsRow|null>(null);
+ const headers={"Content-Type":"application/json",Authorization:`Bearer ${accessKey}`};
+ const load=useCallback(async()=>{
+  setRows([]);setLookups({});setProfile(null);if(!accessKey)return;setBusy(true);setMessage("");
+  try{
+   const response=await fetch(`/api/operations?entity=${entity}${cid?`&cid=${encodeURIComponent(cid)}`:""}`,{headers:{Authorization:`Bearer ${accessKey}`}});const json=await response.json();if(!response.ok)throw new Error(json.message||json.error);setRows(json.data);
+   const refs=await Promise.all(["pops","teams","employees","issue-types","invoices"].map(async key=>{const r=await fetch(`/api/operations?entity=${key}`,{headers:{Authorization:`Bearer ${accessKey}`}});const j=await r.json();if(!r.ok)throw new Error(j.message||j.error);return [key,j.data] as const;}));setLookups(Object.fromEntries(refs));
+   if(cid){const response=await fetch(`/api/operations?detail=1&entity=customers&key=${encodeURIComponent(cid)}`,{headers:{Authorization:`Bearer ${accessKey}`}});const json=await response.json();if(!response.ok)throw new Error(json.message||json.error);setProfile(json.data.record);}
+  }catch(e){setRows([]);setMessage(e instanceof Error?e.message:"Unable to load operations");}finally{setBusy(false);}
+ },[accessKey,entity,cid]);
+ useEffect(()=>{void load();setForm(null);},[load]);
+ async function save(e:FormEvent){e.preventDefault();if(!form)return;setBusy(true);try{const response=await fetch(`/api/operations?entity=${entity}`,{method:form.id?"PUT":"POST",headers,body:JSON.stringify(form)});const json=await response.json();if(!response.ok)throw new Error(json.message||json.error);setForm(null);await load();setMessage("Saved successfully");}catch(error){setMessage(error instanceof Error?error.message:"Save failed");}finally{setBusy(false);}}
+ async function remove(row:OpsRow){if(!window.confirm(`Delete this ${entity} record? Linked references may be cleared. Invoices with payments cannot be deleted.`))return;setBusy(true);try{const response=await fetch(`/api/operations?entity=${entity}`,{method:"DELETE",headers,body:JSON.stringify({id:row.id})});const json=await response.json();if(!response.ok)throw new Error(json.message||json.error);await load();setMessage("Record deleted; activity history retained");}catch(error){setMessage(error instanceof Error?error.message:"Delete failed");}finally{setBusy(false);}}
+ const config=opsConfig[entity];const visible=rows.filter(row=>Object.values(row).some(value=>String(value??"").toLowerCase().includes(search.toLowerCase())));
+ return <section className={cid?"customer-ops-section":"list-page"}><div className="list-heading"><div><p className="eyebrow">OPERATIONS</p><h1>{cid?"Billing & follow-up":"Teams, billing & follow-up"}</h1><span>{cid?`Customer ${cid}`:"Manage POPs, staff, issue types, invoices and payment records."}</span></div></div><OperationsAccess value={accessKey} onChange={onKeyChange}/><div className="ops-tabs">{tabs.map(tab=><button key={tab} className={tab===entity?"active":""} onClick={()=>{setEntity(tab);setSearch("");}}>{opsConfig[tab].title}</button>)}</div>{message&&<p className="notice" role="status">{message}</p>}
+ {accessKey&&<div className="panel">{profile&&<div className="ops-totals">{["customerType","registrationStatus","registrationDate","district","upazila","popName","agreedMrc","agreedOtc","paymentStatus"].map(field=><span key={field}>{field.replace(/([A-Z])/g," $1")}: {String(profile[field]??"Not set")}</span>)}</div>}<div className="manager-actions"><button disabled={busy} onClick={()=>setForm({...Object.fromEntries(config.fields.filter(field=>field.options).map(field=>[field.key,field.options![0]])),...(cid?{cid}:{})})}>+ Add {config.title}</button><input aria-label={`Search ${config.title}`} placeholder="Search records" value={search} onChange={e=>setSearch(e.target.value)}/><button disabled={busy} onClick={()=>void load()}>Refresh</button></div>
+ {entity==="invoices"&&<div className="ops-totals"><span>Billed ৳{rows.reduce((sum,row)=>sum+Number(row.amount),0).toLocaleString()}</span><span>Received ৳{rows.reduce((sum,row)=>sum+Number(row.paid),0).toLocaleString()}</span><span>Balance ৳{rows.reduce((sum,row)=>sum+Number(row.balance),0).toLocaleString()}</span></div>}
+ {form&&<form onSubmit={save}><h3>{form.id?"Edit":"Create"} {config.title}</h3><OperationsFields fields={config.fields} form={form} onChange={setForm} lookups={lookups}/><div className="manager-actions"><button disabled={busy}>Save</button><button type="button" onClick={()=>setForm(null)}>Cancel</button></div></form>}
+ <div className="table-wrap"><table><thead><tr>{config.columns.map(column=><th key={column}>{column.replace(/([A-Z])/g," $1")}</th>)}<th>Actions</th></tr></thead><tbody>{visible.map(row=><tr key={String(row.id)}>{config.columns.map(column=><td key={column}>{String(row[column]??"—")}</td>)}<td><div className="manager-actions"><button disabled={busy} onClick={()=>setForm({...row})}>Edit</button><button disabled={busy} onClick={()=>void remove(row)}>Delete</button></div></td></tr>)}</tbody></table></div>{!rows.length&&<p className="no-tickets">{busy?"Loading…":"No records yet."}</p>}<p className="ops-hint">Times use Asia/Dhaka. Billing totals come from recorded invoices and payments. Follow-up outcomes record contact activity; they do not send SMS or initiate payment transfers.</p></div>}
+ </section>;
+}
