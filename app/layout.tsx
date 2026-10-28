@@ -3,6 +3,7 @@ import "./globals.css";
 import "./analytics.css";
 import "./packages.css";
 import "./operations.css";
+import "./tickets.css";
 
 export const metadata: Metadata = { title: "NetDesk ISP", description: "ISP customer care and ticket management" };
 

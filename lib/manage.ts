@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt } from "node:crypto";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { transaction } from "./db";
 import { z } from "zod";
@@ -88,7 +88,9 @@ export async function manage(entity: Entity, action: "create" | "update" | "dele
       await audit(connection,"customers",cid,action,before,body);
       return { cid, ...(action === "create"?{id:saved.insertId}:{}) };
     }
-    const ticketNo=action==="create"?`TKT-${randomUUID().replaceAll("-","").slice(0,24)}`:text(body.ticketNo,"Ticket number",80);
+    // Keep legacy/imported references unchanged. New references are six-digit
+    // random numbers, with the UNIQUE constraint plus retries handling clashes.
+    let ticketNo=action==="create"?String(randomInt(100000,1000000)):text(body.ticketNo,"Ticket number",80);
     let before:RowDataPacket|undefined;
     if(action!=="create"){
       const [rows]=await connection.query<RowDataPacket[]>("SELECT * FROM tickets WHERE ticket_no=? FOR UPDATE",[ticketNo]);
@@ -102,7 +104,7 @@ export async function manage(entity: Entity, action: "create" | "update" | "dele
     const priority=choice(body.priority||"medium",["low","medium","high","urgent"],"priority");
     const status=choice(body.status||"open",["open","in_progress","resolved","closed"],"status");
     if(customer&&["open","in_progress"].includes(status)){
-      const [existing]=await connection.query<RowDataPacket[]>("SELECT id,ticket_no FROM tickets WHERE customer_id=? AND category=? AND issue_type_id <=> ? AND status IN ('open','in_progress') AND ticket_no<>? LIMIT 1 FOR UPDATE",[customer.id,category,metadata.values.issue_type_id,ticketNo]);
+      const [existing]=await connection.query<RowDataPacket[]>("SELECT id,ticket_no FROM tickets WHERE customer_id=? AND category=? AND issue_type_id <=> ? AND status IN ('open','in_progress') AND id<>? LIMIT 1 FOR UPDATE",[customer.id,category,metadata.values.issue_type_id,before?.id??0]);
       if(existing.length&&action==="create"){
         await connection.execute("INSERT INTO ticket_notes(ticket_id,note) VALUES(?,?)",[existing[0].id,description]);
         await connection.execute("UPDATE tickets SET updated_at=CURRENT_TIMESTAMP WHERE id=?",[existing[0].id]);
@@ -113,7 +115,17 @@ export async function manage(entity: Entity, action: "create" | "update" | "dele
     }
     const values=[customer?.id??null,category,subject,description,priority,status,status,status,ticketNo];
     const resolution="CASE WHEN ?='resolved' THEN COALESCE(resolved_at,CURRENT_TIMESTAMP) WHEN ?='closed' THEN resolved_at ELSE NULL END";
-    const [saved]=await connection.execute<ResultSetHeader>(action==="create"?"INSERT INTO tickets(customer_id,category,subject,description,priority,status,resolved_at,ticket_no) VALUES(?,?,?,?,?,?,IF(?='resolved',CURRENT_TIMESTAMP,NULL),?)":`UPDATE tickets SET customer_id=?,category=?,subject=?,description=?,priority=?,status=?,resolved_at=${resolution} WHERE ticket_no=?`,action==="create"?[...values.slice(0,7),ticketNo]:values);
+    let saved:ResultSetHeader|undefined;
+    for(let attempt=0;attempt<10;attempt++){
+      try{
+        const [result]=await connection.execute<ResultSetHeader>(action==="create"?"INSERT INTO tickets(customer_id,category,subject,description,priority,status,resolved_at,ticket_no) VALUES(?,?,?,?,?,?,IF(?='resolved',CURRENT_TIMESTAMP,NULL),?)":`UPDATE tickets SET customer_id=?,category=?,subject=?,description=?,priority=?,status=?,resolved_at=${resolution} WHERE ticket_no=?`,action==="create"?[...values.slice(0,7),ticketNo]:values);
+        saved=result;break;
+      }catch(error){
+        if(action==="create"&&(error as {code?:string}).code==="ER_DUP_ENTRY"&&attempt<9){ticketNo=String(randomInt(100000,1000000));continue;}
+        throw error;
+      }
+    }
+    if(!saved)throw new InputError('Unable to allocate a ticket number; retry.',409);
     const columns=Object.keys(metadata.values);
     await connection.execute(`UPDATE tickets SET ${columns.map(key=>`${key}=?`).join(",")} WHERE id=?`,[...Object.values(metadata.values),before?.id??saved.insertId]);
     await audit(connection,"tickets",ticketNo,action,before,body,body.resolvedById?Number(body.resolvedById):body.createdById?Number(body.createdById):null);

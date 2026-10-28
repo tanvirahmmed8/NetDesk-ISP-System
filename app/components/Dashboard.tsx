@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import DataManager from "./DataManager";
+import TicketDetails from "./TicketDetails";
 import McpDocs from "./McpDocs";
 import McpSettings from "./McpSettings";
 import AnalyticsDashboard from "./AnalyticsDashboard";
@@ -12,7 +13,7 @@ import { PackageDetails, connectionNames } from "@/lib/package-details";
 import { customerMatchesSearch } from "@/lib/phone";
 import { Activity, BookOpen, CalendarDays, ChevronRight, CircleDollarSign, Code2, ExternalLink, Gauge, Headphones, LayoutDashboard, MapPin, Package, Phone, Plus, Search, Send, Ticket as TicketIcon, UserRound, Users, Wifi, X } from "lucide-react";
 
-type Ticket = { ticketNo: string; category: string; subject: string; description: string; status: string; priority: string; createdAt: string; noteCount: number; cid?: string; phone?:string; customerName?: string };
+type Ticket = { id?:number; ticketNo: string; category: string; subject: string; description: string; status: string; priority: string; createdAt: string; noteCount: number; cid?: string; phone?:string; customerName?: string };
 type Customer = { cid: string; name: string; phone: string; email?: string; address: string; nextPaymentDate: string|null; accountStatus: string; packageName: string; speedMbps: number; packagePrice: string; openTickets?: number; packageId?:number; packageMonthlyTotal?:number|string; unlimited?:boolean|number; serviceHours?:number; connectionType?:string; publicIpCount?:number; otcCharge?:number|string; supportHours?:string; vatPercent?:number|string; vatIncluded?:boolean|number };
 type InternetPackage = PackageDetails;
 
@@ -34,6 +35,8 @@ export default function Home() {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
   const [customerSearch,setCustomerSearch]=useState("");
   const [ticketSearch,setTicketSearch]=useState("");
+  const [selectedTicket,setSelectedTicket]=useState<string|null>(null);
+  const closeTicket=useCallback(()=>setSelectedTicket(null),[]);
   const [form, setForm] = useState({ category: "no_internet", priority: "medium", subject: "", description: "" });
   const [customerForm, setCustomerForm] = useState({ cid: "", name: "", phone: "", email: "", address: "", packageId: "", nextPaymentDate: "", accountStatus: "active" });
 
@@ -225,7 +228,7 @@ export default function Home() {
     {view === "tickets" && <section className="list-page">
       <DataManager entity="tickets" records={allTickets} packages={packages} onRefresh={refreshData} accessKey={opsKey} onKeyChange={setOpsKey}/>
       <div className="list-heading"><div><p className="eyebrow">SUPPORT MANAGEMENT</p><h1>Ticket list</h1><span>Track and update complaints across all customers.</span></div></div>
-      <div className="data-card"><div className="table-tools"><div><Search/><input aria-label="Search tickets" placeholder="Search ticket, CID, name or phone" value={ticketSearch} onChange={e=>setTicketSearch(e.target.value)}/></div><span>{allTickets.length} support tickets</span></div><div className="table-wrap"><table><thead><tr><th>Ticket</th><th>Customer</th><th>Issue</th><th>Priority</th><th>Created</th><th>Status</th></tr></thead><tbody>{allTickets.filter(ticket=>!ticketSearch.trim()||[ticket.ticketNo,ticket.subject].some(value=>value.toLowerCase().includes(ticketSearch.trim().toLowerCase()))||customerMatchesSearch({cid:ticket.cid,name:ticket.customerName,phone:ticket.phone},ticketSearch)).map(ticket => <tr key={ticket.ticketNo}><td><b className="ticket-no">{ticket.ticketNo}</b><small>{ticket.noteCount} notes</small></td><td><button className="customer-link" disabled={!ticket.cid} onClick={() => {if(ticket.cid)void openCustomer(ticket.cid);}}>{ticket.customerName}<small>{ticket.cid}</small></button></td><td><b>{ticket.subject}</b><small>{categoryNames[ticket.category]}</small></td><td><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></td><td>{date(ticket.createdAt)}</td><td><select value={ticket.status} onChange={e => updateStatus(ticket.ticketNo,e.target.value)}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></td></tr>)}</tbody></table></div></div>
+      <div className="data-card"><div className="table-tools"><div><Search/><input aria-label="Search tickets" placeholder="Search ticket, CID, name or phone" value={ticketSearch} onChange={e=>setTicketSearch(e.target.value)}/></div><span>{allTickets.length} support tickets</span></div><div className="table-wrap"><table><thead><tr><th>Ticket</th><th>Customer</th><th>Issue</th><th>Priority</th><th>Created</th><th>Status</th></tr></thead><tbody>{allTickets.filter(ticket=>!ticketSearch.trim()||[ticket.ticketNo,ticket.subject,String(ticket.id??"")].some(value=>value.toLowerCase().includes(ticketSearch.trim().toLowerCase()))||customerMatchesSearch({cid:ticket.cid,name:ticket.customerName,phone:ticket.phone},ticketSearch)).map(ticket => <tr key={ticket.ticketNo}><td><button className="ticket-open-button" onClick={()=>setSelectedTicket(ticket.ticketNo)} aria-label={`View ticket ${ticket.id??ticket.ticketNo}`}>#{ticket.id??ticket.ticketNo}</button><small>{ticket.noteCount} notes</small></td><td><button className="customer-link" disabled={!ticket.cid} onClick={() => {if(ticket.cid)void openCustomer(ticket.cid);}}>{ticket.customerName}<small>{ticket.cid}</small></button></td><td><b>{ticket.subject}</b><small>{categoryNames[ticket.category]}</small></td><td><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></td><td>{date(ticket.createdAt)}</td><td><select value={ticket.status} onChange={e => updateStatus(ticket.ticketNo,e.target.value)}><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select></td></tr>)}</tbody></table></div></div>
     </section>}
 
     {view === "packages" && <section className="list-page">
@@ -290,7 +293,7 @@ export default function Home() {
         <div className="tickets panel">
           <div className="panel-title"><div><p className="eyebrow">SERVICE HISTORY</p><h2>Recent tickets</h2></div><span>{tickets.length} total</span></div>
           {tickets.length === 0 ? <div className="no-tickets">No tickets for this customer.</div> : tickets.map(ticket => <article className="ticket" key={ticket.ticketNo}>
-            <div className="ticket-top"><div><span className="ticket-no">{ticket.ticketNo}</span><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></div><span className={`status ${ticket.status}`}>{pretty(ticket.status)}</span></div>
+            <div className="ticket-top"><div><button className="ticket-open-button" onClick={()=>setSelectedTicket(ticket.ticketNo)}>#{ticket.id??ticket.ticketNo}</button><span className={`priority ${ticket.priority}`}>{ticket.priority}</span></div><span className={`status ${ticket.status}`}>{pretty(ticket.status)}</span></div>
             <h3>{ticket.subject}</h3><p>{categoryNames[ticket.category]} · Opened {date(ticket.createdAt)} {Number(ticket.noteCount) > 0 && `· ${ticket.noteCount} notes`}</p>
             <select value={ticket.status} onChange={e => updateStatus(ticket.ticketNo, e.target.value)} aria-label="Update ticket status"><option value="open">Open</option><option value="in_progress">In progress</option><option value="resolved">Resolved</option><option value="closed">Closed</option></select>
           </article>)}
@@ -309,6 +312,7 @@ export default function Home() {
       <OperationsWorkspace cid={customer.cid} accessKey={opsKey} onKeyChange={setOpsKey}/>
     </>)}
     </div>
+    {selectedTicket&&<TicketDetails ticketNo={selectedTicket} onClose={closeTicket} onRefresh={refreshData} onCustomer={cid=>{setSelectedTicket(null);void openCustomer(cid);}}/>}
   </main>;
 }
 

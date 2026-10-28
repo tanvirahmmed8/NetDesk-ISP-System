@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     if (ticketNo) {
       const [tickets] = await db.query(`
         SELECT t.id, t.ticket_no AS ticketNo, t.category, t.subject, t.description,
-          t.status, t.priority, t.created_at AS createdAt,
+          t.status, t.priority, t.created_at AS createdAt,t.updated_at AS updatedAt,t.resolved_at AS resolvedAt,
           c.cid, c.phone, COALESCE(c.name,'Unlinked customer') AS customerName
         FROM tickets t LEFT JOIN customers c ON c.id = t.customer_id
         WHERE t.ticket_no = ? LIMIT 1
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, data: { ticket, notes } });
     }
     const [tickets] = await db.query(`
-      SELECT t.ticket_no AS ticketNo, t.category, t.subject, t.description,
+      SELECT t.id,t.ticket_no AS ticketNo, t.category, t.subject, t.description,
         t.status, t.priority, t.created_at AS createdAt, t.updated_at AS updatedAt,
         c.cid, c.phone, COALESCE(c.name,'Unlinked customer') AS customerName,
         (SELECT COUNT(*) FROM ticket_notes n WHERE n.ticket_id = t.id) AS noteCount

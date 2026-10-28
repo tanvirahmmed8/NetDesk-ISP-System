@@ -1,12 +1,12 @@
+import { manageTicketNote } from "./ticket-notes";
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { db, transaction } from "./db";
-import { RowDataPacket, ResultSetHeader } from "mysql2";
+import { db } from "./db";
+import { RowDataPacket } from "mysql2";
 import { entities, errorMessage, InputError, manage } from "./manage";
 import { importRows, setTicketStatus } from "./operations";
 import { getCustomer, getPackage, getTicket, listRecords } from "./queries";
 import { parseCustomerLookup } from "./customer-lookup";
-import { audit } from "./audit";
 import { packageExtraFields } from "./package-schema";
 import { customerExtraFields,ticketExtraFields } from "./ops-schema";
 import { listOperations,writeOperation,operationalDetails } from "./ops";
@@ -39,19 +39,7 @@ export function createMcpServer() {
   server.registerTool("set_ticket_status",{description:"Change ticket status; prevents duplicate unresolved categories",inputSchema:{ticketNo:z.string().min(1).max(80),status:ticketFields.status},annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}},async({ticketNo,status})=>execute(()=>setTicketStatus(ticketNo,status)));
   server.registerTool("bulk_import",{description:"Create up to 500 records. Partial success; returns per-row errors. Existing CIDs fail; duplicate complaints become notes. Import packages, customers, then tickets.",inputSchema:{entity:z.enum(["customers","packages","tickets"]),rows:z.array(z.record(z.string(),z.unknown())).min(1).max(500)},annotations:{readOnlyHint:false,destructiveHint:false,idempotentHint:false,openWorldHint:false}},async({entity,rows})=>execute(()=>importRows(entity,rows)));
   for(const action of ["create","update","delete"] as const) {
-    server.registerTool(`${action}_ticket_note`,{description:`${action} a ticket note`,inputSchema:{ticketNo:z.string().min(1).max(80),...(action!=="create"?{id:z.number().int().positive()}:{}),...(action!=="delete"?{note:z.string().trim().min(1).max(10000)}:{})},annotations:{readOnlyHint:false,destructiveHint:action!=="create",openWorldHint:false}},async args=>execute(()=>transaction(async connection=>{
-      const [tickets]=await connection.query<RowDataPacket[]>("SELECT id FROM tickets WHERE ticket_no=? FOR UPDATE",[args.ticketNo]);
-      if(!tickets.length)throw new InputError("Ticket not found",404);
-      let noteId=args.id;let beforeNote:unknown=null;
-      if(action==="create"){
-        const [insert]=await connection.execute<ResultSetHeader>("INSERT INTO ticket_notes (ticket_id,note) VALUES (?,?)",[tickets[0].id,args.note]);noteId=insert.insertId;
-      }else{
-        const [notes]=await connection.query<RowDataPacket[]>("SELECT id,note FROM ticket_notes WHERE id=? AND ticket_id=? FOR UPDATE",[args.id,tickets[0].id]);
-        if(!notes.length)throw new InputError("Note not found on this ticket",404);beforeNote=notes[0];
-        await connection.execute(action==="update"?"UPDATE ticket_notes SET note=? WHERE id=?":"DELETE FROM ticket_notes WHERE id=?",action==="update"?[args.note!,args.id!]:[args.id!]);
-      }
-      await connection.execute("UPDATE tickets SET updated_at=CURRENT_TIMESTAMP WHERE id=?",[tickets[0].id]);await audit(connection,"tickets",args.ticketNo,`${action}_note`,beforeNote,{id:noteId,note:args.note??null});return {ticketNo:args.ticketNo,id:noteId,action};
-    })));
+    server.registerTool(`${action}_ticket_note`,{description:`${action} a ticket note`,inputSchema:{ticketNo:z.string().min(1).max(80),...(action!=="create"?{id:z.number().int().positive()}:{}),...(action!=="delete"?{note:z.string().trim().min(1).max(10000)}:{})},annotations:{readOnlyHint:false,destructiveHint:action!=="create",openWorldHint:false}},async args=>execute(()=>manageTicketNote(action,args)));
   }
   server.registerTool("dashboard_summary",{description:"Counts of customers, packages, tickets and overdue accounts",inputSchema:{},annotations:{readOnlyHint:true,openWorldHint:false}},async()=>execute(async()=>{
     const [rows]=await db.query<RowDataPacket[]>("SELECT (SELECT COUNT(*) FROM customers) AS customers,(SELECT COUNT(*) FROM packages) AS packages,(SELECT COUNT(*) FROM tickets) AS tickets,(SELECT COUNT(*) FROM tickets WHERE status IN ('open','in_progress')) AS unresolvedTickets,(SELECT COUNT(*) FROM customers WHERE next_payment_date<CURDATE()) AS overdueCustomers");return rows[0];

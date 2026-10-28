@@ -41,8 +41,11 @@ try{
  const denied=await streamed('/api/report-imports',preview,{Origin:'https://evil.example'});assert.equal(denied.status,403);
  const bulk=await streamed('/api/import',{entity:'invalid',rows:[],padding:'x'.repeat(300000)});assert.equal(bulk.status,400);assert.equal(bulk.json.success,false);
  const malformed=await fetch(base+'/api/report-imports',{method:'POST',headers,body:'{'});assert.equal(malformed.status,400);assert.equal((await malformed.json()).success,false);
- if(fs.existsSync('data/tickets-template.csv')){
-  const actual=await streamed('/api/report-imports',{action:'preview',kind:'tickets',csv:fs.readFileSync('data/tickets-template.csv','utf8'),options:{dateFormat:'MDY',contactRole:'employee',createReferences:true}});
+ // The main template may now contain newly converted basic-upload tickets;
+ // historical preview must use the preserved historical-report file instead.
+ const historicalFile='data/tickets-unmatched-customers.csv';
+ if(fs.existsSync(historicalFile)){
+  const actual=await streamed('/api/report-imports',{action:'preview',kind:'tickets',csv:fs.readFileSync(historicalFile,'utf8'),options:{dateFormat:'MDY',contactRole:'employee',createReferences:true}});
   assert.equal(actual.status,200);assert.equal(actual.json.success,true);assert.equal(actual.json.data.rows.length,332);console.log('Actual 332-row ticket CSV previewed only; no source records imported.');
  }
  await connection.execute('UPDATE app_sessions SET expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 SECOND) WHERE user_id=?',[userId]);

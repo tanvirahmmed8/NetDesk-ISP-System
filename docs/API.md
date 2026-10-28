@@ -147,6 +147,12 @@ UI settings take precedence over `.env` and apply immediately. They persist in `
 
 ## Results and behavior
 
+### Ticket note CRUD
+
+Authenticated `GET /api/tickets/{ticketNo}/notes` returns notes. POST `{ "note": "Contacted customer" }` creates one (201); PUT `{ "id": 1, "note": "Updated note" }` edits it; DELETE `{ "id": 1 }` removes it. Note IDs must belong to the specified ticket. Notes accept 1–10,000 characters and do not replace the description or change the ticket's status/resolution date. Cookie writes require a same-origin Origin header. See [Ticket guide](TICKETS.md) for details.
+
+Ticket list/detail responses include the numeric database `id` used for short dashboard display. API/MCP requests still identify tickets by `ticketNo`. New ticketNo values are six-digit numeric strings with uniqueness retries; existing and historical ticket references are preserved unchanged.
+
 Success returns `success: true` and data or a message. Failures return `success: false` with a message (settings authentication failures use an `error` string). Creation returns 201, duplicate complaints return 200 with `action: "note_added"`. Invalid input returns 400, missing records 404, conflicts 409, and server/database failures 500. Settings returns 401 for an invalid token or 503 if the server key is not configured.
 
 Repeated complaints in an unresolved category become notes. Deleting customers also deletes their tickets and notes. Package deletion is blocked while subscribed. Bulk import commits each successful row independently and returns imported/failed counts plus row-level results; retry only failed rows.
