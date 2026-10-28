@@ -36,17 +36,17 @@ try {
   assert.equal((await fetch(endpoint,{headers})).status,405);
   const rest=endpoint.replace("/mcp/v1","");
   const settingsUrl=rest+"/api/settings/mcp";
-  const initialSettings=await(await fetch(settingsUrl)).json();assert.equal(initialSettings.data.source,"environment");
+  const initialSettings=await(await fetch(settingsUrl,{headers})).json();assert.equal(initialSettings.data.source,"environment");
   assert.equal((await fetch(settingsUrl,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({origins:[]})})).status,401);
   assert.equal((await fetch(settingsUrl,{method:"PUT",headers,body:JSON.stringify({origins:["https://client.example.com/invalid-path"]})})).status,400);
   const origins=[...initialSettings.data.origins,"https://client.example.com"];
   const saved=await fetch(settingsUrl,{method:"PUT",headers,body:JSON.stringify({origins})});assert.equal(saved.status,200);
-  const loaded=await(await fetch(settingsUrl)).json();assert.equal(loaded.data.source,"settings");assert.deepEqual(loaded.data.origins,origins);
+  const loaded=await(await fetch(settingsUrl,{headers})).json();assert.equal(loaded.data.source,"settings");assert.deepEqual(loaded.data.origins,origins);
   assert.equal((await fetch(endpoint,{method:"OPTIONS",headers:{Origin:"https://client.example.com"}})).status,204);
   await fetch(settingsUrl,{method:"PUT",headers,body:JSON.stringify({origins:initialSettings.data.origins})});
   assert.equal((await fetch(endpoint,{method:"OPTIONS",headers:{Origin:"https://client.example.com"}})).status,403);
   for(const [path,payload] of [["/api/customers",{cid:123}],["/api/packages",{name:"Bad",speedMbps:-1,price:5}],["/api/tickets",{cid:"CID-10021"}],["/api/import",{entity:"invalid",rows:[]}]] ) {
-    const response=await fetch(rest+path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const response=await fetch(rest+path,{method:"POST",headers,body:JSON.stringify(payload)});
     assert.equal(response.status,400,`Validation for ${path}`);
   }
   const malformed=await fetch(endpoint,{method:"POST",headers,body:"{"});assert.equal(malformed.status,400);

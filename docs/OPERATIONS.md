@@ -1,6 +1,6 @@
 # Operations, billing and report imports
 
-Open `/#operations` for POPs, Teams, Employees, Issue types, Follow-ups, Invoices and Payments. Open `/#imports` for report mapping and review. Enter the existing `MCP_API_KEY` to unlock these sections. The key is held in page memory, not browser storage. New operations/report APIs require it for both reads and writes. Customer/ticket deletion and changes containing operational metadata also require the key.
+Open `/#operations` for POPs, Teams, Employees, Issue types, Follow-ups, Invoices and Payments. Open `/#imports` for report mapping and review. Sign in at `/login` to access these sections; no MCP key is needed in the UI. All REST APIs require a dashboard session or bearer key. See [Login setup](AUTH.md).
 
 ## Setup
 
@@ -16,7 +16,7 @@ For a new database, set `.env` then run `npm.cmd run db:setup`. Initial setup cr
 
 ## Customer operations
 
-Customer list → Operational fields & activity → enter key → View/Edit → Edit operational details. District, upazila, POP, customer type, registration date/status, agreed MRC/OTC and imported payment status are editable. Agreed MRC is the customer's final VAT-inclusive recurring charge; it overrides the standard package monthly total without adding VAT twice. A null override uses the package charge. Customer profile includes a protected Billing & follow-up section.
+Customer list → Operational fields & activity → sign in → View/Edit → Edit operational details. District, upazila, POP, customer type, registration date/status, agreed MRC/OTC and imported payment status are editable. Agreed MRC is the customer's final VAT-inclusive recurring charge; it overrides the standard package monthly total without adding VAT twice. A null override uses the package charge. Customer profile includes a protected Billing & follow-up section.
 
 Registration status: active, registered, pending_payment, installation_pending, cancelled. Customer type: unknown, home, corporate, sme. Imported payment status is a source snapshot, not an invoice balance calculation. Blank source status remains unknown. Registration date and payment due date are separate fields.
 
@@ -50,7 +50,7 @@ Historical ticket import preserves original ticket number and original creation/
 
 ## API and MCP
 
-Every operation below requires `Authorization: Bearer YOUR_MCP_API_KEY`:
+Every operation below requires a dashboard session or `Authorization: Bearer YOUR_MCP_API_KEY`:
 
 | Method | Endpoint | Body / query |
 |---|---|---|

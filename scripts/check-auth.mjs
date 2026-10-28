@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { randomBytes, scrypt, createHash } from 'node:crypto';
+import { promisify } from 'node:util';
+import mysql from 'mysql2/promise';
+if(fs.existsSync('.env'))process.loadEnvFile('.env');
+const base=process.env.TEST_BASE_URL||'http://127.0.0.1:3018';
+const username=`auth-check-${Date.now()}`,password=randomBytes(24).toString('hex'),salt=randomBytes(16).toString('hex');
+const hash=await promisify(scrypt)(password,salt,64);
+const connection=await mysql.createConnection({host:process.env.DB_HOST||'127.0.0.1',port:Number(process.env.DB_PORT||3306),user:process.env.DB_USER||'root',password:process.env.DB_PASSWORD||'',database:process.env.DB_NAME||'isp_system'});
+let userId;
+const headers={'Content-Type':'application/json',Origin:new URL(base).origin};
+const signIn=(pass=password,extra={})=>fetch(base+'/api/auth/login',{method:'POST',headers:{...headers,...extra},body:JSON.stringify({username,password:pass})});
+try{
+ const [created]=await connection.execute('INSERT INTO app_users(username,password_hash) VALUES(?,?)',[username,`scrypt:${salt}:${hash.toString('hex')}`]);userId=created.insertId;
+ const home=await fetch(base+'/',{redirect:'manual'});assert.equal(home.status,307);assert.ok(home.headers.get('location').endsWith('/login'));
+ assert.equal((await fetch(base+'/login')).status,200);
+ for(const path of ['/api/customers','/api/packages','/api/tickets','/api/analytics','/api/operations','/api/report-imports','/api/settings/mcp','/api/docs'])assert.equal((await fetch(base+path)).status,401,`Unprotected ${path}`);
+ assert.equal((await fetch(base+'/api/customers',{headers:{'x-middleware-subrequest':'middleware:middleware:middleware:middleware:middleware'}})).status,401);
+ assert.equal((await signIn(password,{Origin:'https://evil.example'})).status,403);
+ assert.equal((await signIn('incorrect-password')).status,401);
+ const response=await signIn();assert.equal(response.status,200);const setCookie=response.headers.get('set-cookie');assert.ok(setCookie.includes('HttpOnly'));assert.ok(setCookie.includes('SameSite=lax'));assert.ok(!setCookie.includes(password));
+ const cookie=setCookie.split(';')[0];
+ const session=await fetch(base+'/api/auth/session',{headers:{Cookie:cookie}});assert.equal(session.status,200);assert.equal((await session.json()).user.username,username);
+ const dashboard=await fetch(base+'/',{headers:{Cookie:cookie},redirect:'manual'});assert.equal(dashboard.status,200);assert.ok(dashboard.headers.get('cache-control').includes('no-store'));
+ assert.equal((await fetch(base+'/api/operations?entity=employees',{headers:{Cookie:cookie}})).status,200);
+ assert.equal((await fetch(base+'/api/packages',{method:'POST',headers:{...headers,Cookie:cookie,Origin:'https://evil.example'},body:'{}'})).status,403);
+ assert.equal((await fetch(base+'/api/packages',{method:'POST',headers:{...headers,Cookie:cookie},body:'{}'})).status,400,'Authenticated request should reach validation');
+ assert.equal((await fetch(base+'/mcp/v1',{headers:{Cookie:cookie}})).status,401,'Dashboard cookie must not authenticate MCP');
+ assert.equal((await fetch(base+'/api/auth/logout',{method:'POST',headers:{...headers,Cookie:cookie}})).status,200);
+ assert.equal((await fetch(base+'/api/customers',{headers:{Cookie:cookie}})).status,401,'Logout must revoke session');
+ const second=await signIn();const secondCookie=second.headers.get('set-cookie').split(';')[0];
+ await connection.execute('UPDATE app_sessions SET expires_at=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 SECOND) WHERE user_id=?',[userId]);
+ assert.equal((await fetch(base+'/api/customers',{headers:{Cookie:secondCookie}})).status,401);
+ const third=await signIn();const thirdCookie=third.headers.get('set-cookie').split(';')[0];await connection.execute('UPDATE app_users SET active=0 WHERE id=?',[userId]);
+ assert.equal((await fetch(base+'/api/customers',{headers:{Cookie:thirdCookie}})).status,401);
+ await connection.execute('UPDATE app_users SET active=1 WHERE id=?',[userId]);
+ for(let attempt=0;attempt<10;attempt++)assert.equal((await signIn('incorrect-password')).status,401);
+ assert.equal((await signIn()).status,429,'Login attempts should be throttled');
+ console.log('PASS: private pages/APIs, login validation, secure-session attributes, CSRF, middleware bypass rejection, authenticated operations, logout revocation, expiry, disabled accounts, throttling and independent MCP auth.');
+}finally{
+ if(userId)await connection.execute('DELETE FROM app_users WHERE id=?',[userId]);
+ await connection.execute('DELETE FROM app_login_limits WHERE bucket=?',[createHash('sha256').update(`user:${username}`).digest('hex')]);await connection.end();
+}

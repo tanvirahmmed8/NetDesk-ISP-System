@@ -4,6 +4,7 @@ import { Field, opsConfig } from "@/lib/ops-config";
 export type OpsRow=Record<string,unknown>;
 export function OperationsAccess({value,onChange}:{value:string;onChange:(value:string)=>void}){
  const[draft,setDraft]=useState(value);
+ if(value==="dashboard-session")return <p className="ops-hint">Access authorized by your dashboard login. Sign out when you finish.</p>;
  return <form className="ops-access" onSubmit={e=>{e.preventDefault();onChange(draft.trim());}}><label>Operations key <small>Use the existing MCP_API_KEY; kept in memory only.</small><input type="password" autoComplete="off" minLength={32} required value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Enter MCP_API_KEY"/></label><button>Unlock / reload</button>{value&&<button type="button" onClick={()=>{setDraft("");onChange("");}}>Lock</button>}</form>;
 }
 export function OperationsFields({fields,form,onChange,lookups={}}:{fields:Field[];form:OpsRow;onChange:(value:OpsRow)=>void;lookups?:Record<string,OpsRow[]>}){

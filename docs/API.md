@@ -2,9 +2,9 @@
 
 For AI client integration, see [MCP documentation](MCP.md). This document describes the REST endpoints used by the dashboard.
 
-Base URL: `http://localhost:3008` locally, or your deployed application domain. Requests and responses use JSON. The demo business APIs do not require authentication. MCP origin settings writes require the MCP bearer key.
+Base URL: `http://localhost:3008` locally, or your deployed application domain. Requests and responses use JSON. All REST APIs require a dashboard session cookie or `Authorization: Bearer YOUR_MCP_API_KEY`. Cookie-authenticated writes require a same-origin Origin header. See [Login setup](AUTH.md).
 
-Operational metadata, report-import endpoints and customer/ticket deletion require the MCP bearer key. The legacy customer/package/ticket basic create/read/update endpoints remain demo APIs. See the [operations API and workflow reference](OPERATIONS.md) for new endpoints and fields. Customer due dates may now be null, and detailed issue types participate in duplicate complaint matching.
+Operational metadata, reports and all basic customer/package/ticket operations use the same authentication policy. See the [operations API and workflow reference](OPERATIONS.md) for new endpoints and fields. Customer due dates may now be null, and detailed issue types participate in duplicate complaint matching.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -135,7 +135,7 @@ Use either a `cid` or a `phone` column for ticket CSV imports; both columns are 
 
 GET returns `{ "success": true, "data": { "origins": ["https://client.example.com"], "source": "settings" } }`. Sources are `settings`, `environment`, or `default`.
 
-PUT requires `Authorization: Bearer YOUR_MCP_API_KEY` and a body such as:
+PUT requires a dashboard session or `Authorization: Bearer YOUR_MCP_API_KEY` and a body such as:
 
 ```json
 { "origins": ["http://localhost:3008", "https://client.example.com"] }

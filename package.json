@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "db:setup": "npm run db:migrate && npm run db:migrate:operations",
+    "db:setup": "npm run db:migrate && npm run db:migrate:operations && npm run db:migrate:auth",
     "check:operations": "node scripts/check-operations.mjs",
     "db:migrate:operations": "node scripts/migrate-operations.mjs",
     "db:migrate:packages": "node scripts/migrate-package-fields.mjs",
@@ -13,7 +13,10 @@
     "build": "next build",
     "start": "next start -p 3008",
     "db:migrate": "node scripts/migrate.mjs",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:migrate:auth": "node scripts/migrate-auth.mjs",
+    "auth:create-user": "node scripts/create-user.mjs",
+    "check:auth": "node scripts/check-auth.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

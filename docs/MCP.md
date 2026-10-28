@@ -87,7 +87,7 @@ The check builds into `.next-mcp-check`, starts an isolated server on port 3018 
 
 ## Allowed origins settings
 
-Open **Settings** in the dashboard. Add a full HTTP/HTTPS origin, then click **Save changes** using the current MCP key. Remove entries with **Remove** and save again. An empty list blocks all browser origins while native clients without Origin can still authenticate.
+Open **Settings** in the dashboard. Add a full HTTP/HTTPS origin, then click **Save changes** while signed into the dashboard. Remove entries with **Remove** and save again. An empty list blocks all browser origins while native clients without Origin can still authenticate.
 
 Settings are stored in `.data/mcp-settings.json` and override `MCP_ALLOWED_ORIGINS` from `.env`. Changes apply immediately and survive restarts. Keep `.data` on persistent storage when deploying; file permissions must allow the site user to write it. Multiple instances must share that directory or use a shared settings store. Never put the MCP key in this file.
 

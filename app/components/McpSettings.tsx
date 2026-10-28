@@ -31,7 +31,7 @@ export default function McpSettings() {
   async function save(event:FormEvent) {
     event.preventDefault();setBusy(true);setMessage("");setError("");
     try{
-      const response=await fetch("/api/settings/mcp",{method:"PUT",headers:{"Content-Type":"application/json",Authorization:`Bearer ${key}`},body:JSON.stringify({origins})});
+      const response=await fetch("/api/settings/mcp",{method:"PUT",headers:{"Content-Type":"application/json",},body:JSON.stringify({origins})});
       const json=await response.json();if(!response.ok)throw new Error(json.message||json.error||"Unable to save settings");
       setOrigins(json.data.origins);setSource(json.data.source);setDirty(false);setMessage(json.message);setKey("");
     }catch(e){setError(e instanceof Error?e.message:"Unable to save settings");}
@@ -44,7 +44,7 @@ export default function McpSettings() {
         <form className="origin-add" onSubmit={add}><label htmlFor="new-origin">Add new origin</label><div><input id="new-origin" type="url" required placeholder="https://client.example.com" value={origin} onChange={e=>setOrigin(e.target.value)} disabled={busy}/><button disabled={busy||!origin.trim()}>Add origin</button></div></form>
         <ul className="origin-list">{origins.map(item=><li key={item}><code>{item}</code><button disabled={busy} aria-label={`Remove ${item}`} onClick={()=>{setOrigins(origins.filter(value=>value!==item));setDirty(true);setMessage("");}}>Remove</button></li>)}</ul>
         {origins.length===0&&<p>No browser origins allowed. Native clients without an Origin header can still connect using the MCP key.</p>}
-        <form className="settings-save" onSubmit={save}><label htmlFor="settings-key">MCP key to save changes</label><input id="settings-key" type="password" autoComplete="off" required minLength={32} value={key} onChange={e=>setKey(e.target.value)} placeholder="Enter the existing MCP_API_KEY" disabled={busy}/><small>The key is only used to authorize this save and is not stored in browser storage.</small><div><button disabled={busy||!dirty}>{busy?"Saving…":"Save changes"}</button><button type="button" disabled={busy||!dirty} onClick={()=>{setMessage("");void load();}}>Discard changes</button>{dirty&&<span>Unsaved changes</span>}</div></form>
+        <form className="settings-save" onSubmit={save}><small>Your dashboard login authorizes settings changes. External MCP clients still require a bearer key.</small><div><button disabled={busy||!dirty}>{busy?"Saving…":"Save changes"}</button><button type="button" disabled={busy||!dirty} onClick={()=>{setMessage("");void load();}}>Discard changes</button>{dirty&&<span>Unsaved changes</span>}</div></form>
         <p className="settings-footnote">Current source: {source === "settings"?"saved UI settings":source === "environment"?"MCP_ALLOWED_ORIGINS in .env":"default origins"}. Saved settings take effect immediately and survive restarts. Bearer authentication remains required for every MCP client.</p>
       </>}
     </div></section>;

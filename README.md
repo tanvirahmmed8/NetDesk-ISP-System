@@ -1,8 +1,10 @@
 # NetDesk ISP System
 
+Dashboard access now requires a user ID and password. Existing installations: run `npm run db:migrate:auth`, then `npm run auth:create-user -- admin` and choose a password at the hidden prompts. Build/restart the app and visit `/login`. All REST APIs now require a dashboard session or bearer key; MCP keeps its existing bearer authentication. See [Login setup and deployment](docs/AUTH.md).
+
 Documentation: [REST API](docs/API.md) · [MCP server](docs/MCP.md)
 
-[Operations, billing & report-import guide](docs/OPERATIONS.md) — POP/team/employee management, customer follow-ups, invoices, payments, assignment/history and source-report mapping. Existing installations: run `npm.cmd run db:migrate:operations`. New installations: use `npm.cmd run db:setup`. Operations/report reads and writes require the MCP key; uploaded real source reports are not automatically imported.
+[Operations, billing & report-import guide](docs/OPERATIONS.md) — POP/team/employee management, customer follow-ups, invoices, payments, assignment/history and source-report mapping. Existing installations: run `npm.cmd run db:migrate:operations`. New installations: use `npm.cmd run db:setup`. Operations/report reads and writes require a dashboard session or MCP bearer key; uploaded real source reports are not automatically imported.
 
 NetDesk is a simple ISP customer-care and support-ticket dashboard built with Next.js and MySQL. It provides customer account lookup, package management views, billing information, ticket tracking, and API documentation.
 
@@ -274,4 +276,4 @@ scripts/
 
 ## Security note
 
-The local version does not require authentication. Before exposing it publicly, add user authentication, API authorization, rate limiting, input validation, audit logging, and HTTPS.
+Dashboard and REST endpoints require authentication. Create an account using the login setup guide above. Use HTTPS, restrict staff access, rotate API keys and review dependency security updates before uploading real customer data.

@@ -1,4 +1,5 @@
-import { readMcpSettings, requireMcpKey, saveMcpSettings } from "@/lib/mcp-settings";
+import { requireAdminAccess } from "@/lib/auth";
+import { readMcpSettings, saveMcpSettings } from "@/lib/mcp-settings";
 import { InputError } from "@/lib/manage";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -7,7 +8,7 @@ export async function GET() {
   catch{return Response.json({success:false,message:"Unable to read MCP settings"},{status:503});}
 }
 export async function PUT(request:Request) {
-  const denied=requireMcpKey(request);if(denied)return denied;
+  const denied=await requireAdminAccess(request);if(denied)return denied;
   try {
     let body;try{body=await request.json();}catch{throw new InputError("Invalid JSON");}
     const data=await saveMcpSettings(body?.origins);
