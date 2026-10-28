@@ -51,7 +51,8 @@ try{
  const customerCommit=await api("/api/report-imports","POST",{action:"commit",batchId:stagedCustomer.data.id});assert.equal(customerCommit.data.imported,1,JSON.stringify(customerCommit));customerCids.push(payCid);
  const importedCustomer=await api(`/api/operations?detail=1&entity=customers&key=${payCid}`);assert.equal(importedCustomer.data.record.nextPaymentDate,null);assert.equal(importedCustomer.data.record.paymentStatus,"unknown");assert.equal(importedCustomer.data.followups.length,1);assert.equal(importedCustomer.data.invoices.length,0);
  for(const [kind,file] of [["customers","Payment Due list.csv"],["tickets","Ticket list with Our Own Employee Name & Contact number.csv"]]){
-  const text=await fs.readFile(file,'utf8');const preview=await api("/api/report-imports","POST",{action:"preview",kind,csv:text,filename:file,options:{dateFormat:"MDY",contactRole:"employee"}});assert.equal(preview.success,true,preview.message);assert.equal(preview.data.rows.length,353);console.log(`${kind} source report: 353 rows previewed only; no source records imported`);
+  const sourcePath=await fs.access(file).then(()=>file,()=>`data/${file}`);
+  const text=await fs.readFile(sourcePath,'utf8');const preview=await api("/api/report-imports","POST",{action:"preview",kind,csv:text,filename:file,options:{dateFormat:"MDY",contactRole:"employee"}});assert.equal(preview.success,true,preview.message);assert.equal(preview.data.rows.length,353);console.log(`${kind} source report: 353 rows previewed only; no source records imported`);
  }
  console.log("PASS: authenticated master CRUD, agreed pricing, issue-aware duplicate handling, assignment/history, payment balance guards, historical and customer report imports, idempotency and safe source previews.");
 }finally{

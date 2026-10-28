@@ -13,4 +13,7 @@ export async function middleware(request:NextRequest){
  }}catch{/* Fail closed if the auth database has not been migrated. */}
  const target=new URL('/login',request.url);return NextResponse.redirect(target);
 }
-export const config={runtime:'nodejs',matcher:['/','/login','/api/:path*']};
+// Upload routes enforce requireAdminAccess inside their handlers. Excluding
+// them here avoids Next 15 Node middleware cloning/locking large POST bodies.
+// Do not add another exclusion without adding equivalent route-level auth.
+export const config={runtime:'nodejs',matcher:['/','/login','/api/((?!(?:report-imports|import)(?:/|$)).*)']};

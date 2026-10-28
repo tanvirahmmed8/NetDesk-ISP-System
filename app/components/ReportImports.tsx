@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { csvRecords, reportMappings, ReportKind } from "@/lib/report-format";
 import { customerOpsFields, ticketOpsFields, Field } from "@/lib/ops-config";
 import { OperationsAccess, OperationsFields, OpsRow } from "./OperationsWorkspace";
+import { readApiResponse } from "@/lib/api-response";
 type ImportRow={id?:number;rowNumber:number;original:OpsRow;payload:OpsRow;issues:string[];state?:string};
 type Batch={id:number;kind:ReportKind;filename:string;rows:ImportRow[];options:{createReferences:boolean}};
 export default function ReportImports({accessKey,onKeyChange}:{accessKey:string;onKeyChange:(key:string)=>void}){
@@ -10,7 +11,7 @@ export default function ReportImports({accessKey,onKeyChange}:{accessKey:string;
  const[dateFormat,setDateFormat]=useState("MDY"),[contactRole,setContactRole]=useState("reporter"),[createReferences,setCreateReferences]=useState(false),[packageMap,setPackageMap]=useState<Record<string,string>>({});
  const[preview,setPreview]=useState<{rows:ImportRow[]}|null>(null),[batches,setBatches]=useState<OpsRow[]>([]),[batch,setBatch]=useState<Batch|null>(null),[editing,setEditing]=useState<ImportRow|null>(null),[lookups,setLookups]=useState<Record<string,OpsRow[]>>({});
  const[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[filter,setFilter]=useState("all"),[page,setPage]=useState(0);
- const request=useCallback(async(url:string,body?:unknown)=>{const response=await fetch(url,{method:body?"POST":"GET",headers:{"Content-Type":"application/json",Authorization:`Bearer ${accessKey}`},...(body?{body:JSON.stringify(body)}:{})});const json=await response.json();if(!response.ok)throw new Error(json.message||json.error||"Request failed");return json.data;},[accessKey]);
+ const request=useCallback(async(url:string,body?:unknown)=>{const response=await fetch(url,{method:body?"POST":"GET",cache:"no-store",headers:{"Content-Type":"application/json",Authorization:`Bearer ${accessKey}`},...(body?{body:JSON.stringify(body)}:{})});const json=await readApiResponse(response);return json.data;},[accessKey]);
  const reload=useCallback(async()=>{
   if(!accessKey){setBatches([]);setBatch(null);setPreview(null);setLookups({});return;}
   try{setBatches(await request("/api/report-imports"));const entries=await Promise.all(["pops","teams","employees","issue-types"].map(async entity=>[entity,await request(`/api/operations?entity=${entity}`)]));const packages=await request("/api/packages"),customers=await request("/api/customers");setLookups({...Object.fromEntries(entries),packages,customers});}catch(e){setMessage(e instanceof Error?e.message:"Unable to load import data");}

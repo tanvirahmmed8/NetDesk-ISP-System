@@ -16,7 +16,8 @@
     "lint": "next lint",
     "db:migrate:auth": "node scripts/migrate-auth.mjs",
     "auth:create-user": "node scripts/create-user.mjs",
-    "check:auth": "node scripts/check-auth.mjs"
+    "check:auth": "node scripts/check-auth.mjs",
+    "check:uploads": "node scripts/check-upload-bodies.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

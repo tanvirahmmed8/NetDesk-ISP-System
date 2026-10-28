@@ -43,3 +43,9 @@ npm run check:auth
 ```
 
 It creates and removes its own user and checks access control, login/logout, CSRF, expiry, disabled users and throttling. Existing CRUD/operations tests use the API key; external unauthenticated clients now need to be updated.
+
+## Upload request handling
+
+`/api/import` and `/api/report-imports` deliberately bypass Node.js middleware to avoid Next.js 15 request-body cloning/locking failures on larger POST requests. Both routes independently enforce `requireAdminAccess` before reading the request body, including bearer/session checks and same-origin protection for cookie-authenticated writes. This is not an authentication bypass. Other dashboard/API middleware protection and MCP authentication are unchanged.
+
+After building and starting an isolated test server on port 3018, run `npm run check:uploads`. It tests repeated streamed 300 KB authenticated requests, rejects anonymous/expired sessions and cross-site writes, and optionally previews the local ticket CSV without staging or importing any source records. The report-import UI now reports non-JSON HTTP errors with their status instead of showing a raw JSON parse error.
