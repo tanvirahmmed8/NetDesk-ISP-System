@@ -1,0 +1,84 @@
+name: NetDesk CI and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: netdesk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      - name: Check deployment shell syntax
+        run: bash -n scripts/deploy.sh
+      - name: Production build and TypeScript validation
+        run: npm run build
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Package source (no environment files or customer CSVs)
+        run: |
+          tar -czf /tmp/netdesk-source.tgz app lib database scripts docs package.json package-lock.json next.config.ts next-env.d.ts tsconfig.json middleware.ts README.md
+      - name: Deploy over verified SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DEPLOY_HOST:?Set DEPLOY_HOST secret}"
+          : "${DEPLOY_USER:?Set DEPLOY_USER secret}"
+          : "${DEPLOY_SSH_KEY:?Set DEPLOY_SSH_KEY secret}"
+          : "${DEPLOY_KNOWN_HOSTS:?Set DEPLOY_KNOWN_HOSTS secret}"
+          DEPLOY_PORT=${DEPLOY_PORT:-22}
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$DEPLOY_USER" =~ ^[a-zA-Z0-9_-]+$ && "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          [[ "$RELEASE_ID" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]
+          umask 077
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/netdesk_deploy
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh_options=(-i ~/.ssh/netdesk_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          scp "${ssh_options[@]}" -P "$DEPLOY_PORT" /tmp/netdesk-source.tgz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/netdesk-$RELEASE_ID.tgz"
+          ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$RELEASE_ID" <<'REMOTE'
+          set -euo pipefail
+          release_id=$1
+          [[ "$release_id" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]
+          umask 077
+          deploy_root="$HOME/.netdesk-deploy"
+          mkdir -p "$deploy_root/releases"
+          release="$deploy_root/releases/$release_id"
+          mkdir "$release"
+          tar -xzf "/tmp/netdesk-$release_id.tgz" --no-same-owner -C "$release"
+          rm -- "/tmp/netdesk-$release_id.tgz"
+          bash "$release/scripts/deploy.sh" "$release"
+          REMOTE

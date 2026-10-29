@@ -1,6 +1,8 @@
 # NetDesk ISP System
 
-[Ticket details, notes and numeric IDs](docs/TICKETS.md): click the numeric ticket ID to open details and manage notes. New ticket references use six digits; existing references/history remain intact. No migration or ticket re-upload is required.
+[Automatic CI/CD deployment](docs/DEPLOYMENT.md): push to `main` to build and deploy through GitHub Actions after the one-time SSH/secrets setup. Separate releases preserve the running build; failed health checks attempt rollback. Database migrations remain manual.
+
+[Ticket details, notes and numeric IDs](docs/TICKETS.md): click the numeric ticket ID to open details and manage notes. New ticket references use TKT-{database id}; existing references/history remain intact. No migration or ticket re-upload is required.
 
 Dashboard access now requires a user ID and password. Existing installations: run `npm run db:migrate:auth`, then `npm run auth:create-user -- admin` and choose a password at the hidden prompts. Build/restart the app and visit `/login`. All REST APIs now require a dashboard session or bearer key; MCP keeps its existing bearer authentication. See [Login setup and deployment](docs/AUTH.md).
 
