@@ -1,6 +1,9 @@
 node_modules
 .next
 .next-mcp-check
+.netdesk-runtime/
+netdesk-runtime.tgz
+runtime-size-kb.txt
 .data/
 .data-mcp-check/
 # Local customer reports and prepared import files (may contain personal data).

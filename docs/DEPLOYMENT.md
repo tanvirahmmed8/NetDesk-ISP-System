@@ -2,7 +2,13 @@
 
 Push to `main` runs CI, then deploys through SSH as `tanvirsoft-netdesk`. Pull requests only run CI. Actions also has a manual Run workflow button (choose `main`). Never put credentials in this repository. Workflow documentation: https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments
 
-CI uses Node 22, `npm ci` and a production build (including TypeScript checks). It does not run database integration tests or migrations. Deployment builds a separate release using the server's existing `.env`, checks `/login`, then saves PM2. Build failures leave the running release untouched. A failed switch/health check attempts to restart the previous release. Switching has a brief interruption; this is not zero-downtime deployment.
+CI uses Node 22 on Linux, installs dependencies, tests packaging/cleanup safety, then builds with `NETDESK_STANDALONE=1`. It packages Next's traced runtime dependencies, `server.js`, `.next/static` and optional `public`, without build caches, `.env` files or customer reports. The deploy job downloads that exact run's artifact. No install/build runs on the production server. CI does not run database integration tests or migrations. See [Next.js standalone output](https://nextjs.org/docs/app/api-reference/config/next-config-js/output).
+
+Deployment verifies the archive checksum, extracts a separate release, links the server's existing `.env`/`.data`, checks `/login`, then saves PM2. Build failures leave the running release untouched. A failed switch/health check attempts to restart the previous release (including legacy npm-based releases). Switching has a brief interruption; this is not zero-downtime deployment.
+
+After success, automatic cleanup keeps only the active release and its immediately previous release. Other direct-child deployment folders matching the generated release-ID pattern are permanently removed, including older failed releases. Unknown folder names and symlinked directories are skipped. Cleanup does not traverse `.data`/`.env` links or touch the original site directory, npm cache, other sites or MySQL. A failure before successful switching removes only this run's inactive extracted release; failed rollback retains it for recovery. Forced termination can leave residue for the next successful cleanup.
+
+Before upload, free disk must accommodate the compressed archive, unpacked runtime and 64 MiB headroom. It checks again before extraction; insufficient space aborts without stopping the app. With only 337 MB currently free, the first run may refuse safely if the actual artifact will not fit. Cleanup happens only after success, so it does not delete your rollback release just to make room. User quotas or concurrent disk writes can still cause failures. Disk use is bounded by two releases, but the first migration retains one larger legacy release until a second successful standalone deployment replaces it.
 
 ## 1. Server prerequisites (once)
 
@@ -84,19 +90,19 @@ Run these yourself in local PowerShell:
 ```powershell
 cd D:\Tanvir\Js\isp-system
 git status
-git add .github/workflows/deploy.yml scripts/deploy.sh docs/DEPLOYMENT.md README.md .gitattributes
+git add .github/workflows/deploy.yml scripts/deploy.sh scripts/package-runtime.mjs scripts/prune-releases.mjs scripts/check-deployment.mjs scripts/check-deploy-shell.mjs scripts/check-runtime.mjs next.config.ts docs/DEPLOYMENT.md README.md .gitignore
 git diff --cached --stat
 git commit -m "Add checked SSH deployment with release rollback"
 git push origin main
 ```
 
-Inspect staged files before committing; never stage `.env`, private keys or customer CSVs. The workflow packages only app source/config/scripts/docs, not the `data` folder or local environment files. No server `git pull` or GitHub repository access key is needed: Actions sends the checked-out source for that exact commit over SSH. Secrets must be configured before the first deployment; failed runs can be re-run from Actions after setup.
+Inspect staged files before committing; never stage `.env`, private keys or customer CSVs. No server `git pull` or repository access key is needed: Actions sends the standalone runtime from that exact commit over SSH. Existing SSH secrets remain unchanged. Push the updated workflow; rerunning an old run uses the old workflow. Local `npm run build/start` and the MCP checks retain their normal mode unless `NETDESK_STANDALONE=1` is explicitly set.
 
 ## Everyday usage and troubleshooting
 
-Uploads stream over SSH into `~/.netdesk-deploy/incoming`, not the server's `/tmp` or SFTP subsystem. The workflow prints home-filesystem space/inode availability before uploading. If upload fails, inspect `df -h "$HOME" /tmp`, `df -i "$HOME" /tmp`, `quota -s` (if available), and directory ownership/permissions. A full filesystem or exhausted user quota still requires administrator attention; changing the upload path cannot fix that. Do not delete existing releases or change permissions broadly without reviewing exact targets. Upload failure occurs before the running process is switched.
+Uploads stream over SSH into `~/.netdesk-deploy/incoming`, not the server's `/tmp` or SFTP subsystem. This run's archive is removed by the deploy script and an always-run workflow cleanup step. If SSH is unavailable, cleanup may also fail; check the warning and inspect that specific archive manually. If upload fails, inspect `df -h "$HOME"`, `df -i "$HOME"`, `quota -s` (if available), and directory ownership/permissions. Do not delete existing releases or change permissions broadly without reviewing exact targets.
 
-Commit and push your changes; watch GitHub → Actions → NetDesk CI and deploy. Do not simultaneously run a manual deployment. Deployments are serialized by GitHub concurrency and a server lock. Old releases remain under `~/.netdesk-deploy/releases` and are not automatically deleted. Monitor disk usage; remove only verified inactive releases, never the current/previous build, original `.env` or `.data`.
+Commit and push your changes; watch GitHub → Actions → NetDesk CI and deploy. Do not simultaneously run a manual deployment. Deployments are serialized by GitHub concurrency and a server lock. Releases are automatically limited to current + previous after each successful deployment. Monitor disk usage: this does not clean the legacy checkout, pre-existing npm cache, unrelated uploads/logs or other sites.
 
 After the first automated deploy, PM2 runs from a release directory, **not the original Git checkout**. Editing the original source or building it no longer changes the running release. Its `.env` is shared: environment-only changes still require `pm2 restart netdesk --update-env`; build-time environment changes require re-running deployment. Keep migrations explicit, backed up and backward-compatible if rollback is needed. Never rerun `db:setup` against production automatically.
 
@@ -116,7 +122,11 @@ previous=$(cat ~/.netdesk-deploy/previous-release)
 printf '%s\n' "$previous"
 test -f "$previous/.next/BUILD_ID" &&
 pm2 delete netdesk &&
-pm2 start npm --name netdesk --cwd "$previous" -- start &&
+if [ -f "$previous/server.js" ]; then
+  PORT=3008 HOSTNAME=127.0.0.1 NODE_ENV=production pm2 start "$previous/server.js" --name netdesk --cwd "$previous" --interpreter "$(command -v node)" --node-args="--env-file=/home/tanvirsoft-netdesk/htdocs/netdesk.tanvirsoft.com/.env"
+else
+  pm2 start npm --name netdesk --cwd "$previous" -- start
+fi
 pm2 save
 curl -I http://127.0.0.1:3008/login
 ```

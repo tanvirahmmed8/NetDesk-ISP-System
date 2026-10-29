@@ -1,6 +1,6 @@
 # NetDesk ISP System
 
-[Automatic CI/CD deployment](docs/DEPLOYMENT.md): push to `main` to build and deploy through GitHub Actions after the one-time SSH/secrets setup. Separate releases preserve the running build; failed health checks attempt rollback. Database migrations remain manual.
+[Automatic CI/CD deployment](docs/DEPLOYMENT.md): push to `main` to build a standalone runtime on GitHub and deploy it over SSH. No server-side dependency install/build. Free-space checks, health-check rollback and automatic current/previous release retention protect small servers. Database migrations remain manual.
 
 [Ticket details, notes and numeric IDs](docs/TICKETS.md): click the numeric ticket ID to open details and manage notes. New ticket references use TKT-{database id}; existing references/history remain intact. No migration or ticket re-upload is required.
 

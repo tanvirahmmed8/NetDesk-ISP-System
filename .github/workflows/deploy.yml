@@ -29,8 +29,30 @@ jobs:
       - run: npm ci --include=dev
       - name: Check deployment shell syntax
         run: bash -n scripts/deploy.sh
+      - name: Test release cleanup and runtime packaging safety
+        run: |
+          node scripts/check-deployment.mjs
+          node scripts/check-deploy-shell.mjs
       - name: Production build and TypeScript validation
         run: npm run build
+        env:
+          NETDESK_STANDALONE: '1'
+      - name: Package standalone runtime
+        run: |
+          node scripts/package-runtime.mjs
+          du -sk .netdesk-runtime | awk '{print $1}' > runtime-size-kb.txt
+          tar -czf netdesk-runtime.tgz -C .netdesk-runtime .
+          du -h netdesk-runtime.tgz
+      - name: Smoke test actual packaged server and static assets
+        run: node scripts/check-runtime.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netdesk-runtime
+          path: |
+            netdesk-runtime.tgz
+            runtime-size-kb.txt
+          retention-days: 1
+          if-no-files-found: error
 
   deploy:
     needs: check
@@ -42,9 +64,9 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - name: Package source (no environment files or customer CSVs)
-        run: |
-          tar -czf /tmp/netdesk-source.tgz app lib database scripts docs package.json package-lock.json next.config.ts next-env.d.ts tsconfig.json middleware.ts README.md
+      - uses: actions/download-artifact@v4
+        with:
+          name: netdesk-runtime
       - name: Deploy over verified SSH
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
@@ -63,25 +85,35 @@ jobs:
           DEPLOY_PORT=${DEPLOY_PORT:-22}
           [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$DEPLOY_USER" =~ ^[a-zA-Z0-9_-]+$ && "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
           [[ "$RELEASE_ID" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]
+          unpacked_kb=$(cat runtime-size-kb.txt)
+          [[ "$unpacked_kb" =~ ^[0-9]+$ ]]
+          archive_kb=$(du -k netdesk-runtime.tgz | awk '{print $1}')
+          required_kb=$((unpacked_kb + archive_kb + 65536))
+          checksum=$(sha256sum netdesk-runtime.tgz | awk '{print $1}')
           umask 077
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/netdesk_deploy
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh_options=(-i ~/.ssh/netdesk_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-          # Stream through SSH into the site user's home, avoiding server /tmp
-          # restrictions and differences between SFTP and shell filesystem roots.
-          ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; umask 077; mkdir -p \"\$HOME/.netdesk-deploy/incoming\"; df -h \"\$HOME\"; df -i \"\$HOME\"; cat > \"\$HOME/.netdesk-deploy/incoming/$RELEASE_ID.tgz\"" < /tmp/netdesk-source.tgz
-          ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$RELEASE_ID" <<'REMOTE'
+          # Refuse before uploading if extraction plus 64 MiB headroom will not fit.
+          ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$required_kb" <<'PREFLIGHT'
           set -euo pipefail
-          release_id=$1
-          [[ "$release_id" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]
-          umask 077
-          deploy_root="$HOME/.netdesk-deploy"
-          mkdir -p "$deploy_root/releases"
-          release="$deploy_root/releases/$release_id"
-          mkdir "$release"
-          archive="$deploy_root/incoming/$release_id.tgz"
-          tar -xzf "$archive" --no-same-owner -C "$release"
-          rm -- "$archive"
-          bash "$release/scripts/deploy.sh" "$release"
-          REMOTE
+          available=$(df -Pk "$HOME" | awk 'END {print $4}')
+          df -h "$HOME"
+          ((available >= $1)) || { echo "Not enough disk: need $1 KiB; have $available KiB. No deploy attempted." >&2; exit 1; }
+          PREFLIGHT
+          # SSH streaming avoids server /tmp and SFTP path restrictions.
+          ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; umask 077; mkdir -p \"\$HOME/.netdesk-deploy/incoming\"; cat > \"\$HOME/.netdesk-deploy/incoming/$RELEASE_ID.tgz\"" < netdesk-runtime.tgz
+          ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$RELEASE_ID" "$unpacked_kb" "$checksum" < scripts/deploy.sh
+      - name: Remove this run's leftover upload
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+        shell: bash
+        run: |
+          if [[ -f ~/.ssh/netdesk_deploy && "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$DEPLOY_USER" =~ ^[a-zA-Z0-9_-]+$ && "${DEPLOY_PORT:-22}" =~ ^[0-9]+$ && "$RELEASE_ID" =~ ^[a-f0-9]{40}-[0-9]+-[0-9]+$ ]]; then
+            ssh -i ~/.ssh/netdesk_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -p "${DEPLOY_PORT:-22}" "$DEPLOY_USER@$DEPLOY_HOST" "rm -f -- \"\$HOME/.netdesk-deploy/incoming/$RELEASE_ID.tgz\"" || echo 'WARNING: remove this run upload manually if SSH is unavailable.'
+          fi
