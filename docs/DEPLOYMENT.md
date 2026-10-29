@@ -94,6 +94,8 @@ Inspect staged files before committing; never stage `.env`, private keys or cust
 
 ## Everyday usage and troubleshooting
 
+Uploads stream over SSH into `~/.netdesk-deploy/incoming`, not the server's `/tmp` or SFTP subsystem. The workflow prints home-filesystem space/inode availability before uploading. If upload fails, inspect `df -h "$HOME" /tmp`, `df -i "$HOME" /tmp`, `quota -s` (if available), and directory ownership/permissions. A full filesystem or exhausted user quota still requires administrator attention; changing the upload path cannot fix that. Do not delete existing releases or change permissions broadly without reviewing exact targets. Upload failure occurs before the running process is switched.
+
 Commit and push your changes; watch GitHub → Actions → NetDesk CI and deploy. Do not simultaneously run a manual deployment. Deployments are serialized by GitHub concurrency and a server lock. Old releases remain under `~/.netdesk-deploy/releases` and are not automatically deleted. Monitor disk usage; remove only verified inactive releases, never the current/previous build, original `.env` or `.data`.
 
 After the first automated deploy, PM2 runs from a release directory, **not the original Git checkout**. Editing the original source or building it no longer changes the running release. Its `.env` is shared: environment-only changes still require `pm2 restart netdesk --update-env`; build-time environment changes require re-running deployment. Keep migrations explicit, backed up and backward-compatible if rollback is needed. Never rerun `db:setup` against production automatically.

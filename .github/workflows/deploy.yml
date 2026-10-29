@@ -68,7 +68,9 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/netdesk_deploy
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh_options=(-i ~/.ssh/netdesk_deploy -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-          scp "${ssh_options[@]}" -P "$DEPLOY_PORT" /tmp/netdesk-source.tgz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/netdesk-$RELEASE_ID.tgz"
+          # Stream through SSH into the site user's home, avoiding server /tmp
+          # restrictions and differences between SFTP and shell filesystem roots.
+          ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; umask 077; mkdir -p \"\$HOME/.netdesk-deploy/incoming\"; df -h \"\$HOME\"; df -i \"\$HOME\"; cat > \"\$HOME/.netdesk-deploy/incoming/$RELEASE_ID.tgz\"" < /tmp/netdesk-source.tgz
           ssh "${ssh_options[@]}" -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$RELEASE_ID" <<'REMOTE'
           set -euo pipefail
           release_id=$1
@@ -78,7 +80,8 @@ jobs:
           mkdir -p "$deploy_root/releases"
           release="$deploy_root/releases/$release_id"
           mkdir "$release"
-          tar -xzf "/tmp/netdesk-$release_id.tgz" --no-same-owner -C "$release"
-          rm -- "/tmp/netdesk-$release_id.tgz"
+          archive="$deploy_root/incoming/$release_id.tgz"
+          tar -xzf "$archive" --no-same-owner -C "$release"
+          rm -- "$archive"
           bash "$release/scripts/deploy.sh" "$release"
           REMOTE
