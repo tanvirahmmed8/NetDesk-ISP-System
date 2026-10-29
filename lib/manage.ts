@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import { transaction } from "./db";
 import { z } from "zod";
@@ -88,9 +88,9 @@ export async function manage(entity: Entity, action: "create" | "update" | "dele
       await audit(connection,"customers",cid,action,before,body);
       return { cid, ...(action === "create"?{id:saved.insertId}:{}) };
     }
-    // Keep legacy/imported references unchanged. New references are six-digit
-    // random numbers, with the UNIQUE constraint plus retries handling clashes.
-    let ticketNo=action==="create"?String(randomInt(100000,1000000)):text(body.ticketNo,"Ticket number",80);
+    // New public references are derived from the database-assigned ID below.
+    // Existing/imported references are never rewritten during ordinary edits.
+    let ticketNo=action==="create"?"":text(body.ticketNo,"Ticket number",80);
     let before:RowDataPacket|undefined;
     if(action!=="create"){
       const [rows]=await connection.query<RowDataPacket[]>("SELECT * FROM tickets WHERE ticket_no=? FOR UPDATE",[ticketNo]);
@@ -117,11 +117,25 @@ export async function manage(entity: Entity, action: "create" | "update" | "dele
     const resolution="CASE WHEN ?='resolved' THEN COALESCE(resolved_at,CURRENT_TIMESTAMP) WHEN ?='closed' THEN resolved_at ELSE NULL END";
     let saved:ResultSetHeader|undefined;
     for(let attempt=0;attempt<10;attempt++){
+      const temporaryNo=`TMP-${randomUUID().replaceAll('-','').slice(0,24)}`;
+      let insertedId:number|undefined;
       try{
-        const [result]=await connection.execute<ResultSetHeader>(action==="create"?"INSERT INTO tickets(customer_id,category,subject,description,priority,status,resolved_at,ticket_no) VALUES(?,?,?,?,?,?,IF(?='resolved',CURRENT_TIMESTAMP,NULL),?)":`UPDATE tickets SET customer_id=?,category=?,subject=?,description=?,priority=?,status=?,resolved_at=${resolution} WHERE ticket_no=?`,action==="create"?[...values.slice(0,7),ticketNo]:values);
+        const [result]=await connection.execute<ResultSetHeader>(action==="create"?"INSERT INTO tickets(customer_id,category,subject,description,priority,status,resolved_at,ticket_no) VALUES(?,?,?,?,?,?,IF(?='resolved',CURRENT_TIMESTAMP,NULL),?)":`UPDATE tickets SET customer_id=?,category=?,subject=?,description=?,priority=?,status=?,resolved_at=${resolution} WHERE ticket_no=?`,action==="create"?[...values.slice(0,7),temporaryNo]:values);
+        if(action==="create"){
+          insertedId=result.insertId;
+          ticketNo=`TKT-${insertedId}`;
+          await connection.execute("UPDATE tickets SET ticket_no=? WHERE id=?",[ticketNo,insertedId]);
+        }
         saved=result;break;
       }catch(error){
-        if(action==="create"&&(error as {code?:string}).code==="ER_DUP_ENTRY"&&attempt<9){ticketNo=String(randomInt(100000,1000000));continue;}
+        if(action==="create"&&(error as {code?:string}).code==="ER_DUP_ENTRY"){
+          // A historical ticket may already own TKT-{next id}. Remove only our
+          // uncommitted placeholder and try another auto-increment ID. Never
+          // overwrite an existing ticket or derive IDs using MAX(id)+1.
+          if(insertedId)await connection.execute("DELETE FROM tickets WHERE id=? AND ticket_no=?",[insertedId,temporaryNo]);
+          if(attempt<9)continue;
+          throw new InputError('Unable to allocate a unique ticket reference; retry.',409);
+        }
         throw error;
       }
     }

@@ -2,18 +2,21 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { randomBytes, createHash } from 'node:crypto';
 import mysql from 'mysql2/promise';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 if(fs.existsSync('.env'))process.loadEnvFile('.env');
 const base=process.env.TEST_BASE_URL||'http://127.0.0.1:3018',stamp=Date.now(),cid=`NOTE-${stamp}`;
 const headers={'Content-Type':'application/json',Authorization:`Bearer ${process.env.MCP_API_KEY}`};
 const connection=await mysql.createConnection({host:process.env.DB_HOST||'127.0.0.1',port:Number(process.env.DB_PORT||3306),user:process.env.DB_USER||'root',password:process.env.DB_PASSWORD||'',database:process.env.DB_NAME||'isp_system'});
 const ticketNos=[];let packageId,userId,customerCreated=false;
+const mcpClient=new Client({name:'ticket-number-check',version:'1.0.0'});
 async function api(path,method='GET',body,customHeaders=headers){const response=await fetch(base+path,{method,headers:customHeaders,...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,...await response.json()};}
 try{
  assert.equal((await api('/api/tickets/123456/notes','POST',{note:'unauthorized'},{'Content-Type':'application/json'})).status,401);
  const pkg=await api('/api/packages','POST',{name:`Notes plan ${stamp}`,speedMbps:10,price:500});assert.equal(pkg.success,true);packageId=pkg.data.id;
  const customer=await api('/api/customers','POST',{cid,name:'Notes test customer',phone:'01700000001',packageId,nextPaymentDate:null,accountStatus:'active'});assert.equal(customer.success,true);customerCreated=true;
  const complaint={cid,category:'billing',subject:'Notes test',description:'Original description must remain unchanged',status:'resolved',priority:'medium'};
- for(let i=0;i<2;i++){const result=await api('/api/tickets','POST',complaint);assert.equal(result.success,true,result.message);assert.match(result.data.ticketNo,/^[1-9]\d{5}$/);ticketNos.push(result.data.ticketNo);}
+ for(let i=0;i<2;i++){const result=await api('/api/tickets','POST',complaint);assert.equal(result.success,true,result.message);assert.match(result.data.ticketNo,/^TKT-[1-9]\d*$/);ticketNos.push(result.data.ticketNo);const detail=(await api(`/api/tickets?ticketNo=${result.data.ticketNo}`)).data.ticket;assert.equal(detail.ticketNo,`TKT-${detail.id}`);}
  assert.notEqual(ticketNos[0],ticketNos[1]);
  const legacyNo=`TKT-legacy-note-${stamp}`;
  await connection.execute('INSERT INTO tickets(ticket_no,customer_id,category,subject,description,status,priority) SELECT ?,id,\'other\',\'Legacy notes\',\'Legacy description\',\'open\',\'low\' FROM customers WHERE cid=?',[legacyNo,cid]);ticketNos.push(legacyNo);
@@ -39,8 +42,22 @@ try{
  const events=(await api(`/api/operations?detail=1&entity=tickets&key=${ticketNos[0]}`)).data.events;assert.ok(events.some(event=>event.action==='create_note'&&event.actorName===username));
  const legacyNote=await api(`/api/tickets/${encodeURIComponent(legacyNo)}/notes`,'POST',{note:'Legacy reference still works'});assert.equal(legacyNote.status,201);assert.equal((await api(`/api/tickets?ticketNo=${legacyNo}`)).data.ticket.ticketNo,legacyNo);
  const listed=(await api('/api/tickets')).data;assert.ok(listed.some(ticket=>ticket.ticketNo===ticketNos[0]&&Number.isInteger(ticket.id)&&ticket.noteCount===2));
- console.log('PASS: six-digit ticket references, numeric list IDs, multi-note CRUD, note ownership/validation, preserved description/resolution, session/CSRF protection, actor history and unchanged legacy references.');
+ const bulk=await api('/api/import','POST',{entity:'tickets',rows:[{...complaint,subject:'Bulk numbering one'},{...complaint,subject:'Bulk numbering two'}]});assert.equal(bulk.data.imported,2);
+ for(const row of bulk.data.results){ticketNos.push(row.ticketNo);const ticket=(await api(`/api/tickets?ticketNo=${row.ticketNo}`)).data.ticket;assert.equal(row.ticketNo,`TKT-${ticket.id}`);}
+ await mcpClient.connect(new StreamableHTTPClientTransport(new URL('/mcp/v1',base),{requestInit:{headers:{Authorization:`Bearer ${process.env.MCP_API_KEY}`}}}));
+ const mcpResult=await mcpClient.callTool({name:'create_ticket',arguments:{...complaint,subject:'MCP numbering'}});assert.notEqual(mcpResult.isError,true);const mcpData=mcpResult.structuredContent.data;ticketNos.push(mcpData.ticketNo);
+ const mcpTicket=(await api(`/api/tickets?ticketNo=${mcpData.ticketNo}`)).data.ticket;assert.equal(mcpData.ticketNo,`TKT-${mcpTicket.id}`);
+ // Simulate an imported historical reference occupying the next database ID.
+ const blockerNo=`number-blocker-${stamp}`;
+ const [blocker]=await connection.execute("INSERT INTO tickets(ticket_no,customer_id,category,subject,description,status,priority) SELECT ?,id,'billing','Number collision sentinel','Do not overwrite','closed','low' FROM customers WHERE cid=?",[blockerNo,cid]);ticketNos.push(blockerNo);
+ const occupiedNo=`TKT-${blocker.insertId+1}`;await connection.execute('UPDATE tickets SET ticket_no=? WHERE id=?',[occupiedNo,blocker.insertId]);ticketNos[ticketNos.length-1]=occupiedNo;
+ const afterCollision=await api('/api/tickets','POST',{...complaint,subject:'Numbering after collision'});assert.equal(afterCollision.success,true,afterCollision.message);ticketNos.push(afterCollision.data.ticketNo);
+ const recovered=(await api(`/api/tickets?ticketNo=${afterCollision.data.ticketNo}`)).data.ticket;assert.equal(recovered.ticketNo,`TKT-${recovered.id}`);assert.ok(recovered.id>blocker.insertId+1);
+ const untouched=(await api(`/api/tickets?ticketNo=${occupiedNo}`)).data.ticket;assert.equal(untouched.id,blocker.insertId);assert.equal(untouched.description,'Do not overwrite');
+ const [temporary]=await connection.query("SELECT COUNT(*) AS count FROM tickets t JOIN customers c ON c.id=t.customer_id WHERE c.cid=? AND t.ticket_no LIKE 'TMP-%'",[cid]);assert.equal(Number(temporary[0].count),0);
+ console.log('PASS: TKT-{database id} references for API/bulk/MCP, collision recovery without overwriting legacy tickets, no persisted placeholders, multi-note CRUD, session/CSRF protection and unchanged descriptions/history.');
 }finally{
+ await mcpClient.close().catch(()=>{});
  for(const ticketNo of ticketNos)await api('/api/tickets','DELETE',{ticketNo});
  if(customerCreated)await api('/api/customers','DELETE',{cid});if(packageId)await api('/api/packages','DELETE',{id:packageId});
  if(userId)await connection.execute('DELETE FROM app_users WHERE id=?',[userId]);

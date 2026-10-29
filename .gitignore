@@ -3,6 +3,8 @@ node_modules
 .next-mcp-check
 .data/
 .data-mcp-check/
+# Local customer reports and prepared import files (may contain personal data).
+/data/
 *.tsbuildinfo
 .env
 npm-debug.log*
