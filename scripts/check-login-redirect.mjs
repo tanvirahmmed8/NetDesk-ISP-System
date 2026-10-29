@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import ts from 'typescript';
+const source=await fs.readFile('lib/login-redirect.ts','utf8');
+const {outputText}=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}});
+const {loginRedirectUrl}=await import('data:text/javascript;base64,'+Buffer.from(outputText).toString('base64'));
+const request=(headers={},url='http://localhost:3008/')=>new Request(url,{headers});
+const url=(req,origin='')=>loginRedirectUrl(req,origin).href;
+assert.equal(url(request({host:'netdesk.tanvirsoft.com','x-forwarded-proto':'https'})),'https://netdesk.tanvirsoft.com/login');
+assert.equal(url(request({host:'localhost:3008'})),'http://localhost:3008/login');
+assert.equal(url(request({host:'127.0.0.1:3008'})),'http://127.0.0.1:3008/login');
+assert.equal(url(request({host:'[::1]:3008'})),'http://[::1]:3008/login');
+assert.equal(url(request({host:'netdesk.tanvirsoft.com','x-forwarded-host':'attacker.example','x-forwarded-proto':'https'})),'https://netdesk.tanvirsoft.com/login');
+assert.equal(url(request({host:'attacker.example'}),'https://netdesk.tanvirsoft.com'),'https://netdesk.tanvirsoft.com/login');
+assert.equal(url(request({host:'netdesk.tanvirsoft.com','x-forwarded-proto':'javascript:'})),'http://netdesk.tanvirsoft.com/login');
+for(const host of ['evil.example@localhost','evil.example/path','evil.example,localhost','evil.example\\path','evil.example#fragment','localhost:99999'])assert.throws(()=>url(request({host})));
+for(const origin of ['javascript:alert(1)','https://user:pass@example.com','https://example.com/path','https://example.com?x=1'])assert.throws(()=>url(request(),origin));
+console.log('PASS: proxied/public/local login redirects; canonical origin; spoofed forwarded-host ignored; invalid destinations blocked.');

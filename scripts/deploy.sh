@@ -35,7 +35,7 @@ committed=0
 start_release() {
   local directory=$1
   if [[ -f "$directory/server.js" ]]; then
-    PORT=3008 HOSTNAME=127.0.0.1 NODE_ENV=production pm2 start "$directory/server.js" --name netdesk --cwd "$directory" --interpreter "$(command -v node)" --node-args="--env-file=$site_root/.env"
+    NETDESK_PUBLIC_URL=https://netdesk.tanvirsoft.com PORT=3008 HOSTNAME=127.0.0.1 NODE_ENV=production pm2 start "$directory/server.js" --name netdesk --cwd "$directory" --interpreter "$(command -v node)" --node-args="--env-file=$site_root/.env"
   else
     # First standalone deployment can roll back to an old npm-based release.
     pm2 start npm --name netdesk --cwd "$directory" -- start

@@ -33,6 +33,7 @@ jobs:
         run: |
           node scripts/check-deployment.mjs
           node scripts/check-deploy-shell.mjs
+          node scripts/check-login-redirect.mjs
       - name: Production build and TypeScript validation
         run: npm run build
         env:
@@ -44,7 +45,9 @@ jobs:
           tar -czf netdesk-runtime.tgz -C .netdesk-runtime .
           du -h netdesk-runtime.tgz
       - name: Smoke test actual packaged server and static assets
-        run: node scripts/check-runtime.mjs
+        run: |
+          node scripts/check-runtime.mjs
+          NETDESK_PUBLIC_URL=https://netdesk.tanvirsoft.com node scripts/check-runtime.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: netdesk-runtime
